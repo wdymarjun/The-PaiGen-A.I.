@@ -24,3 +24,4 @@ __all__ = [
     "WikimediaEmotionHarvester",
     "CANONICAL_WIKIMEDIA_EMOTIONS",
 ]
+

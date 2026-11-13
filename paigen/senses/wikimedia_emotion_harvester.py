@@ -119,3 +119,4 @@ class WikimediaEmotionHarvester:
             s for s in CANONICAL_WIKIMEDIA_EMOTIONS
             if q in s.emotion_name.lower() or q in s.historical_art_context.lower() or any(q in au.lower() for au in s.primary_aus)
         ]
+

@@ -18,6 +18,10 @@ from paigen.brain.knowledge.biology import (
     BiologyRegistry,
     BiologicalSystem,
 )
+from paigen.brain.knowledge.affective_scenarios import (
+    AffectiveScenarioRegistry,
+    AffectiveScenario,
+)
 
 __all__ = [
     "HumanConditionRegistry",
@@ -33,4 +37,6 @@ __all__ = [
     "MathematicalDomain",
     "BiologyRegistry",
     "BiologicalSystem",
+    "AffectiveScenarioRegistry",
+    "AffectiveScenario",
 ]

@@ -21,6 +21,7 @@ from paigen.brain.knowledge.mathematics import MathematicsRegistry
 from paigen.brain.knowledge.biology import BiologyRegistry
 from paigen.senses.facs_models import FACSAnalyzer
 from paigen.senses.wikimedia_emotion_harvester import CANONICAL_WIKIMEDIA_EMOTIONS
+from paigen.brain.knowledge.affective_scenarios import AffectiveScenarioRegistry
 
 
 class CurriculumDatasetGenerator:
@@ -319,6 +320,63 @@ class CurriculumDatasetGenerator:
 
         return records
 
+    def generate_affective_scenarios_curriculum(self) -> List[Dict[str, Any]]:
+        """Level 9: Trilingual Affective Responses to Real-Time Micro-Expressions & Bio-States."""
+        records = []
+        for scen in AffectiveScenarioRegistry.get_all():
+            # English Case
+            records.append({
+                "stage": 3,
+                "category": "affective_scenario_english",
+                "instruction": (
+                    f"Observe the user's real-time physical telemetry for '{scen.context_title}':\n"
+                    f"- Action Units & Landmarks: {scen.observed_landmarks_and_aus}\n"
+                    f"- Head Pose & Gaze: {scen.head_pose_and_gaze}\n"
+                    f"- Biophysical Assessment: {scen.biophysical_state}\n"
+                    f"- Target Affect: Valence = {scen.valence:+.2f}, Arousal = {scen.arousal:.2f}\n"
+                    f"Adopt persona '{scen.recommended_persona}' and formulate your English response to Arjun."
+                ),
+                "input": f"Observation: {scen.observed_landmarks_and_aus}",
+                "output": scen.response_english,
+                "metadata": {"scenario_id": scen.scenario_id, "language": "en", "persona": scen.recommended_persona}
+            })
+
+            # Hindi (Devanagari) Case
+            records.append({
+                "stage": 3,
+                "category": "affective_scenario_hindi",
+                "instruction": (
+                    f"Observe the user's real-time physical telemetry for '{scen.context_title}':\n"
+                    f"- Action Units & Landmarks: {scen.observed_landmarks_and_aus}\n"
+                    f"- Head Pose & Gaze: {scen.head_pose_and_gaze}\n"
+                    f"- Biophysical Assessment: {scen.biophysical_state}\n"
+                    f"- Target Affect: Valence = {scen.valence:+.2f}, Arousal = {scen.arousal:.2f}\n"
+                    f"Adopt persona '{scen.recommended_persona}' and formulate your Hindi (Devanagari) response to Arjun."
+                ),
+                "input": f"Observation: {scen.observed_landmarks_and_aus}",
+                "output": scen.response_hindi,
+                "metadata": {"scenario_id": scen.scenario_id, "language": "hi", "persona": scen.recommended_persona}
+            })
+
+            # Hinglish Case
+            records.append({
+                "stage": 3,
+                "category": "affective_scenario_hinglish",
+                "instruction": (
+                    f"Observe the user's real-time physical telemetry for '{scen.context_title}':\n"
+                    f"- Action Units & Landmarks: {scen.observed_landmarks_and_aus}\n"
+                    f"- Head Pose & Gaze: {scen.head_pose_and_gaze}\n"
+                    f"- Biophysical Assessment: {scen.biophysical_state}\n"
+                    f"- Target Affect: Valence = {scen.valence:+.2f}, Arousal = {scen.arousal:.2f}\n"
+                    f"Adopt persona '{scen.recommended_persona}' and formulate your conversational Hinglish response to Arjun."
+                ),
+                "input": f"Observation: {scen.observed_landmarks_and_aus}",
+                "output": scen.response_hinglish,
+                "metadata": {"scenario_id": scen.scenario_id, "language": "hinglish", "persona": scen.recommended_persona}
+            })
+
+        return records
+
     def export_all(self) -> Path:
         """Compiles and exports the complete curriculum into JSONL."""
         all_records = (
@@ -329,7 +387,8 @@ class CurriculumDatasetGenerator:
             self.generate_philosophy_and_creativity_curriculum() +
             self.generate_mathematics_curriculum() +
             self.generate_biology_curriculum() +
-            self.generate_visual_emotion_curriculum()
+            self.generate_visual_emotion_curriculum() +
+            self.generate_affective_scenarios_curriculum()
         )
 
         output_file = self.output_dir / "paigen_language_curriculum.jsonl"
