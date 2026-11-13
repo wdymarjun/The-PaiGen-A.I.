@@ -64,3 +64,4 @@ class HumanConditionRegistry:
     @classmethod
     def get_by_tag(cls, tag: str) -> List[MentalModel]:
         return [m for m in HUMAN_CONDITION_MODELS if tag in m.tags]
+

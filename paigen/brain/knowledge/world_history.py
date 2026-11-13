@@ -216,3 +216,4 @@ class WorldHistoryRegistry:
             if q in text:
                 matches.append(e)
         return matches
+

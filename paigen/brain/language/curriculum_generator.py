@@ -16,6 +16,7 @@ from paigen.brain.language.vocab import VocabularyRegistry
 from paigen.brain.language.statements import StatementRegistry
 from paigen.brain.knowledge.world_history import WorldHistoryRegistry
 from paigen.brain.knowledge.human_condition import HumanConditionRegistry
+from paigen.brain.knowledge.philosophy_and_creativity import PhilosophyAndCreativityRegistry
 
 
 class CurriculumDatasetGenerator:
@@ -156,13 +157,76 @@ class CurriculumDatasetGenerator:
 
         return records
 
+    def generate_philosophy_and_creativity_curriculum(self) -> List[Dict[str, Any]]:
+        """Level 5: Philosophy, Great Minds, and Creative Genres."""
+        records = []
+
+        # 1. Philosophical Schools
+        for phil in PhilosophyAndCreativityRegistry.get_all_philosophies():
+            records.append({
+                "stage": 3,
+                "category": "philosophy_and_wisdom",
+                "instruction": (
+                    f"Explain the philosophical school '{phil.name}' ({phil.region_origin}). "
+                    f"Highlight its key thinkers, core axiom, and practical application as an AI companion."
+                ),
+                "input": f"Philosophy: {phil.name}",
+                "output": (
+                    f"Tradition: {phil.name} ({phil.region_origin})\n"
+                    f"Key Thinkers: {', '.join(phil.key_thinkers)}\n"
+                    f"Core Axiom: {phil.core_axiom}\n"
+                    f"Application in PaiGen: {phil.practical_application_for_ai}"
+                ),
+                "metadata": {"tags": phil.tags}
+            })
+
+        # 2. Great Polymaths & Thinkers
+        for mind in PhilosophyAndCreativityRegistry.get_all_minds():
+            records.append({
+                "stage": 3,
+                "category": "great_minds_and_innovators",
+                "instruction": (
+                    f"Detail the life, ethos, and contributions of '{mind.name}' ({mind.era_field}). "
+                    f"What guiding principle can PaiGen impart to Arjun from their legacy?"
+                ),
+                "input": f"Thinker: {mind.name}",
+                "output": (
+                    f"Thinker: {mind.name} ({mind.era_field})\n"
+                    f"Seminal Breakthroughs:\n" + "\n".join(f"- {c}" for c in mind.seminal_contributions) + "\n"
+                    f"Ethos: {mind.core_ethos}\n"
+                    f"Guiding Principle: \"{mind.advisory_quote_or_principle}\""
+                ),
+                "metadata": {"tags": mind.tags}
+            })
+
+        # 3. Creative Genres of Humanity
+        for genre in PhilosophyAndCreativityRegistry.get_all_genres():
+            records.append({
+                "stage": 3,
+                "category": "human_creative_genres",
+                "instruction": (
+                    f"Analyze the creative discipline '{genre.genre_name}' ({genre.category}). "
+                    f"Explain its purpose in the human soul and defining historical breakthroughs."
+                ),
+                "input": f"Genre: {genre.genre_name}",
+                "output": (
+                    f"Discipline: {genre.genre_name} ({genre.category})\n"
+                    f"Purpose: {genre.purpose_in_human_soul}\n"
+                    f"Defining Milestones:\n" + "\n".join(f"- {b}" for b in genre.defining_breakthroughs)
+                ),
+                "metadata": {"category": genre.category}
+            })
+
+        return records
+
     def export_all(self) -> Path:
         """Compiles and exports the complete curriculum into JSONL."""
         all_records = (
             self.generate_alphabet_curriculum() +
             self.generate_vocabulary_curriculum() +
             self.generate_statement_curriculum() +
-            self.generate_history_curriculum()
+            self.generate_history_curriculum() +
+            self.generate_philosophy_and_creativity_curriculum()
         )
 
         output_file = self.output_dir / "paigen_language_curriculum.jsonl"
