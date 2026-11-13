@@ -96,6 +96,34 @@ class TestSQLiteWALStore(unittest.TestCase):
         self.assertGreaterEqual(wiped, 2)
         self.assertEqual(len(self.store.list_overrides()), 0)
 
+    def test_visual_observations_persistence_and_wipe(self):
+        session_id = "test_vision_session"
+        self.store.get_or_create_session(session_id)
+
+        # Add visual observations
+        row_id1 = self.store.add_visual_observation(session_id, "What is on the desk?", "A cup of tea and a laptop.")
+        row_id2 = self.store.add_visual_observation(session_id, "What color is the wall?", "Pale blue with wooden bookshelves.")
+        self.assertGreater(row_id1, 0)
+        self.assertGreater(row_id2, 0)
+
+        # Retrieve recent visual observations (chronological order)
+        obs = self.store.get_recent_visual_observations(session_id, limit=3)
+        self.assertEqual(len(obs), 2)
+        self.assertEqual(obs[0]["question"], "What is on the desk?")
+        self.assertEqual(obs[0]["description"], "A cup of tea and a laptop.")
+        self.assertEqual(obs[1]["question"], "What color is the wall?")
+        self.assertEqual(obs[1]["description"], "Pale blue with wooden bookshelves.")
+
+        # Wipe observations explicitly
+        deleted = self.store.clear_visual_observations(session_id)
+        self.assertEqual(deleted, 2)
+        self.assertEqual(len(self.store.get_recent_visual_observations(session_id)), 0)
+
+        # Verify clear_session_history also cleans up visual observations
+        self.store.add_visual_observation(session_id, "Check room", "Dimly lit room.")
+        self.store.clear_session_history(session_id)
+        self.assertEqual(len(self.store.get_recent_visual_observations(session_id)), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

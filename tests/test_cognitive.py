@@ -82,6 +82,26 @@ class TestCognitiveBrain(unittest.TestCase):
         full_text = "".join(tokens)
         self.assertIn("[Local Model Offline]", full_text)
 
+    def test_visual_observations_injected_into_dynamic_prompt(self):
+        session_id = "test_vision_prompt_session"
+        ctx = TelemetryContext(session_id=session_id, user_name="Arjun")
+
+        # Initially no visual observations in prompt
+        prompt_before = self.brain.build_dynamic_system_prompt(ctx)
+        self.assertNotIn("RECENT USER-REQUESTED CAMERA OBSERVATIONS", prompt_before)
+
+        # Record a visual observation
+        self.db.add_visual_observation(
+            session_id=session_id,
+            question="What is on the whiteboard?",
+            description="Equations describing Fourier transforms and wave mechanics."
+        )
+
+        prompt_after = self.brain.build_dynamic_system_prompt(ctx)
+        self.assertIn("RECENT USER-REQUESTED CAMERA OBSERVATIONS", prompt_after)
+        self.assertIn("What is on the whiteboard?", prompt_after)
+        self.assertIn("Equations describing Fourier transforms", prompt_after)
+
 
 if __name__ == "__main__":
     unittest.main()
