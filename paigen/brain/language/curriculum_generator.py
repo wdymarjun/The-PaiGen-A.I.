@@ -19,6 +19,8 @@ from paigen.brain.knowledge.human_condition import HumanConditionRegistry
 from paigen.brain.knowledge.philosophy_and_creativity import PhilosophyAndCreativityRegistry
 from paigen.brain.knowledge.mathematics import MathematicsRegistry
 from paigen.brain.knowledge.biology import BiologyRegistry
+from paigen.senses.facs_models import FACSAnalyzer
+from paigen.senses.wikimedia_emotion_harvester import CANONICAL_WIKIMEDIA_EMOTIONS
 
 
 class CurriculumDatasetGenerator:
@@ -268,6 +270,55 @@ class CurriculumDatasetGenerator:
             })
         return records
 
+    def generate_visual_emotion_curriculum(self) -> List[Dict[str, Any]]:
+        """Level 8: Complex Emotional Micro-Expressions, FACS Action Units & Wikimedia Visual Bank."""
+        records = []
+
+        # Complex Emotion FACS Signatures
+        for pattern in FACSAnalyzer.get_all_complex_patterns():
+            records.append({
+                "stage": 3,
+                "category": "facs_complex_emotions",
+                "instruction": (
+                    f"Analyze the complex human emotion '{pattern.display_name}'. "
+                    f"Detail the required Ekman Action Units (AUs), affective valence/arousal, "
+                    f"the micro-expression nuance, and how to differentiate it from deceptive or similar states."
+                ),
+                "input": f"Emotion: {pattern.display_name}",
+                "output": (
+                    f"Emotion: {pattern.display_name} (ID: {pattern.emotion_id})\n"
+                    f"Required Action Units: {', '.join(pattern.required_aus)}\n"
+                    f"Affective Target: Valence = {pattern.valence:+.2f} | Arousal = {pattern.arousal:.2f}\n"
+                    f"Micro-Expression Nuance:\n{pattern.micro_expression_nuance}\n\n"
+                    f"Differentiating Tell:\n{pattern.differentiating_tell}"
+                ),
+                "metadata": {"emotion_id": pattern.emotion_id}
+            })
+
+        # Wikimedia Visual Emotion Reference Samples
+        for sample in CANONICAL_WIKIMEDIA_EMOTIONS:
+            records.append({
+                "stage": 3,
+                "category": "wikimedia_visual_emotion_bank",
+                "instruction": (
+                    f"Examine the historical/artistic emotion portrait '{sample.source_title}'. "
+                    f"Explain the depicted human emotional state, its historical context, FACS AUs, and subtle visual tells."
+                ),
+                "input": f"Visual Sample: {sample.source_title}",
+                "output": (
+                    f"Visual Work: {sample.source_title}\n"
+                    f"Emotion: {sample.emotion_name}\n"
+                    f"Historical/Artistic Context: {sample.historical_art_context}\n"
+                    f"Primary Action Units: {', '.join(sample.primary_aus)}\n"
+                    f"Affective Coordinates: Valence = {sample.valence:+.2f} | Arousal = {sample.arousal:.2f}\n"
+                    f"Subtle Visual Tells: {sample.subtle_emotional_tells}\n"
+                    f"Wikimedia URL: {sample.source_url}"
+                ),
+                "metadata": {"sample_id": sample.sample_id}
+            })
+
+        return records
+
     def export_all(self) -> Path:
         """Compiles and exports the complete curriculum into JSONL."""
         all_records = (
@@ -277,7 +328,8 @@ class CurriculumDatasetGenerator:
             self.generate_history_curriculum() +
             self.generate_philosophy_and_creativity_curriculum() +
             self.generate_mathematics_curriculum() +
-            self.generate_biology_curriculum()
+            self.generate_biology_curriculum() +
+            self.generate_visual_emotion_curriculum()
         )
 
         output_file = self.output_dir / "paigen_language_curriculum.jsonl"
