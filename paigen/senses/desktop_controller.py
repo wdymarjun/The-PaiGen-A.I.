@@ -151,6 +151,35 @@ class DesktopController:
             return f"Screen vision analysis error: {e}"
 
     @classmethod
+    def draft_friend_message(cls, recipient: str, concept: str) -> str:
+        """Uses Ollama to think, structure, and draft a natural, human-like message to a friend."""
+        prompt = (
+            f"You are Arjun's personal AI. Arjun wants to send a message to his friend '{recipient}'. "
+            f"Here is what Arjun wants to say or explain: \"{concept}\". "
+            "Write a clear, friendly, natural message ready to send. "
+            "Do NOT include subject lines, preamble, or placeholders. Output ONLY the message text."
+        )
+        payload = {
+            "model": VISION_MODEL,
+            "stream": False,
+            "messages": [{"role": "user", "content": prompt}],
+            "options": {"temperature": 0.7}
+        }
+        req = urllib.request.Request(
+            f"{OLLAMA_URL}/api/chat",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                res = json.loads(resp.read().decode("utf-8"))
+                return res.get("message", {}).get("content", "").strip().strip('"')
+        except Exception:
+            # Fallback simple template
+            return f"Hey {recipient}, {concept}"
+
+    @classmethod
     def launch_target(cls, target: str) -> bool:
         """Launches an app, protocol URI, or executable reliably on Windows."""
         target = target.strip()
@@ -312,7 +341,55 @@ class DesktopController:
                 pyautogui.screenshot(desktop_path)
                 return f"Captured and saved screenshot to your Desktop: {os.path.basename(desktop_path)}."
 
-        # ── 8. Fuzzy Application Open Fallback ────────────────────────────────
+        # ── 8. Autonomous Messaging to Friends (WhatsApp / Chat Automation) ─
+        # Matches patterns like:
+        # "send message to Rahul saying I will be late"
+        # "send a message to Aman explaining that the project is done"
+        # "text Rohit that we are meeting tomorrow"
+        msg_match = re.search(
+            r"(?:send\s+(?:a\s+)?message\s+to|text|message)\s+([a-zA-Z0-9_\s]+?)\s+(?:saying|explaining|telling\s+(?:him|her|them)?|that|about)\s+(.+)",
+            raw,
+            re.IGNORECASE
+        )
+        if msg_match:
+            friend_name = msg_match.group(1).strip()
+            explanation = msg_match.group(2).strip()
+
+            # Think & format a polished, warm human message using the brain
+            drafted_message = cls.draft_friend_message(friend_name, explanation)
+            
+            # Launch WhatsApp Web pre-loaded with the message
+            encoded_text = urllib.parse.quote(drafted_message)
+            whatsapp_url = f"https://web.whatsapp.com/send?text={encoded_text}"
+            webbrowser.open(whatsapp_url)
+
+            # Also copy to clipboard for immediate pasting into any app (Discord, Telegram, Slack)
+            try:
+                import pyperclip
+                pyperclip.copy(drafted_message)
+            except Exception:
+                pass
+
+            return (
+                f"Understood! I reasoned through your thought and drafted this for {friend_name}: "
+                f"\"{drafted_message}\". I have opened WhatsApp Web and copied it to your clipboard. "
+                "Select your chat and press Enter to send!"
+            )
+
+        # ── 9. Direct Typing Automation ──────────────────────────────────────
+        type_match = re.search(r"^(?:type|write|paste)\s+(.+)$", raw, re.IGNORECASE)
+        if type_match and PYAUTOGUI_OK:
+            text_to_type = type_match.group(1).strip()
+            time.sleep(1.0)  # Brief pause so user focuses desired window
+            try:
+                import pyperclip
+                pyperclip.copy(text_to_type)
+                pyautogui.hotkey("ctrl", "v")
+                return f"Typed: \"{text_to_type}\""
+            except Exception as e:
+                return f"Could not type text: {e}"
+
+        # ── 10. Fuzzy Application Open Fallback ──────────────────────────────
         # If the user says "open X" or "launch X", try launching X directly from Windows PATH / start
         open_match = re.search(r"^(?:please\s+)?(?:open|launch|start|run)\s+([a-zA-Z0-9_\-\.\s]+)$", cmd)
         if open_match:
