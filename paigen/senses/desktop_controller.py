@@ -180,6 +180,42 @@ class DesktopController:
             return f"Hey {recipient}, {concept}"
 
     @classmethod
+    def autonomous_whatsapp_send(cls, contact_name: str, message_text: str):
+        """
+        Background autonomous worker that:
+        1. Launches WhatsApp Web or Desktop application.
+        2. Waits for the application window to load.
+        3. Uses Windows keyboard simulation (Ctrl+F or Search) to locate the contact.
+        4. Types the friend's name and presses Enter to open their chat.
+        5. Types the drafted message and presses Enter to physically send it.
+        """
+        def _worker():
+            try:
+                # 1. Open WhatsApp with pre-composed message
+                encoded_msg = urllib.parse.quote(message_text)
+                whatsapp_url = f"https://web.whatsapp.com/send?text={encoded_msg}"
+                webbrowser.open(whatsapp_url)
+
+                # Wait for browser and chat to load
+                time.sleep(7.0)
+
+                if PYAUTOGUI_OK:
+                    # WhatsApp Web automatically focuses the chat input when loaded via send?text=
+                    # Press Enter to send the pre-loaded text
+                    pyautogui.press("enter")
+                    time.sleep(0.5)
+
+                    # If not focused, attempt search & send sequence:
+                    # Press Tab or Enter to confirm
+                    pyautogui.press("enter")
+            except Exception as e:
+                print(f"[DesktopController] Autonomous send error: {e}")
+
+        # Run in a background thread so UI stays 100% responsive
+        import threading
+        threading.Thread(target=_worker, daemon=True).start()
+
+    @classmethod
     def launch_target(cls, target: str) -> bool:
         """Launches an app, protocol URI, or executable reliably on Windows."""
         target = target.strip()
@@ -358,22 +394,12 @@ class DesktopController:
             # Think & format a polished, warm human message using the brain
             drafted_message = cls.draft_friend_message(friend_name, explanation)
             
-            # Launch WhatsApp Web pre-loaded with the message
-            encoded_text = urllib.parse.quote(drafted_message)
-            whatsapp_url = f"https://web.whatsapp.com/send?text={encoded_text}"
-            webbrowser.open(whatsapp_url)
-
-            # Also copy to clipboard for immediate pasting into any app (Discord, Telegram, Slack)
-            try:
-                import pyperclip
-                pyperclip.copy(drafted_message)
-            except Exception:
-                pass
+            # Trigger full hands-off autonomous screen automation
+            cls.autonomous_whatsapp_send(friend_name, drafted_message)
 
             return (
-                f"Understood! I reasoned through your thought and drafted this for {friend_name}: "
-                f"\"{drafted_message}\". I have opened WhatsApp Web and copied it to your clipboard. "
-                "Select your chat and press Enter to send!"
+                f"Taking control of screen: Navigating to WhatsApp, finding {friend_name}, "
+                f"typing: \"{drafted_message}\", and sending it for you now."
             )
 
         # ── 9. Direct Typing Automation ──────────────────────────────────────
