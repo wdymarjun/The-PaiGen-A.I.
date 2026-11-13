@@ -5,6 +5,7 @@ Architect: Arjun Singh
 Safety-first evolution: Instead of overwriting source code in-place during runtime,
 PaiGen proposes unified diff patches stored in `data/proposed_patches/` for human review,
 automated unit test verification, and explicit developer approval.
+Prevents path traversal and validates targets stay strictly inside repo bounds.
 """
 
 import difflib
@@ -23,10 +24,10 @@ class PatchProposalEngine:
     """Generates reviewable patches without modifying running runtime source code."""
 
     def __init__(self, repo_root: Path):
-        self.repo_root = repo_root
-        self.patch_dir = repo_root / "data" / "proposed_patches"
+        self.repo_root = Path(repo_root).resolve()
+        self.patch_dir = self.repo_root / "data" / "proposed_patches"
         self.patch_dir.mkdir(parents=True, exist_ok=True)
-        self.safety = SafetyHarness(repo_root)
+        self.safety = SafetyHarness(self.repo_root)
 
     def generate_reviewable_patch(
         self,
@@ -35,12 +36,18 @@ class PatchProposalEngine:
         rationale: str
     ) -> Tuple[bool, str, Optional[Path]]:
         """
-        Validates proposed Python code for syntax and generates a .patch file
-        for developer review without modifying the active source tree.
+        Validates target stays inside repository bounds, checks syntax via AST,
+        and generates a safe .patch file for manual developer review.
         """
-        target_file = self.repo_root / target_relative_path
+        # Security: Prevent path traversal outside repository
+        target_file = (self.repo_root / target_relative_path).resolve()
+        try:
+            target_file.relative_to(self.repo_root)
+        except ValueError:
+            return False, f"Security Violation: Target path '{target_relative_path}' resolves outside repo boundary.", None
+
         if not target_file.exists():
-            return False, f"Target file does not exist: {target_file}", None
+            return False, f"Target file does not exist: {target_relative_path}", None
 
         # 1. Validate syntax of proposed code
         is_valid, err_msg = self.safety.validate_python_code(proposed_code)
@@ -65,16 +72,24 @@ class PatchProposalEngine:
         if not diff_lines:
             return False, "Proposed code is identical to original; no patch generated.", None
 
-        # 4. Save patch file with metadata
+        # 4. Save patch file with metadata and manual review instructions
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         patch_filename = f"proposal_{Path(target_relative_path).stem}_{timestamp}.patch"
         patch_path = self.patch_dir / patch_filename
 
         header = [
-            f"# PaiGen AI Proposed Code Modification\n",
+            f"# =====================================================================\n",
+            f"# PaiGen AI Proposed Code Modification (PENDING HUMAN REVIEW)\n",
+            f"# Target File: {target_relative_path}\n",
             f"# Rationale: {rationale}\n",
             f"# Created: {datetime.now().isoformat()}\n",
-            f"# Status: PENDING_HUMAN_REVIEW\n\n"
+            f"# \n",
+            f"# HOW TO SAFELY TEST & APPLY THIS PATCH:\n",
+            f"# 1. Review the diff below carefully for behavioral correctness.\n",
+            f"# 2. Test patch dry-run: git apply --check {patch_path.relative_to(self.repo_root)}\n",
+            f"# 3. Run regression suite: python -m unittest discover tests\n",
+            f"# 4. Apply if satisfied: git apply {patch_path.relative_to(self.repo_root)}\n",
+            f"# =====================================================================\n\n"
         ]
 
         with open(patch_path, "w", encoding="utf-8") as f:
