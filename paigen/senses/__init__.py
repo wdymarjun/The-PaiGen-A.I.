@@ -13,6 +13,10 @@ from paigen.senses.wikimedia_emotion_harvester import (
     WikimediaEmotionHarvester,
     CANONICAL_WIKIMEDIA_EMOTIONS,
 )
+from paigen.senses.emotion_visual_searcher import (
+    MediaEmotionResult,
+    EmotionVisualSearcher,
+)
 
 __all__ = [
     "FacialActionUnit",
@@ -23,5 +27,6 @@ __all__ = [
     "VisualEmotionSample",
     "WikimediaEmotionHarvester",
     "CANONICAL_WIKIMEDIA_EMOTIONS",
+    "MediaEmotionResult",
+    "EmotionVisualSearcher",
 ]
-
