@@ -190,89 +190,12 @@ tts_q   = queue.Queue()
 chat_q  = queue.Queue()
 ui_msg_q= queue.Queue()
 
-# ─── Jarvis-Inspired Desktop Automation & Win32 Control ───────────────────────
-def execute_desktop_action(command: str) -> Optional[str]:
-    """Inspects natural language commands to perform native desktop tasks."""
-    cmd = command.lower().strip()
-    
-    # Spotify / Music
-    if any(k in cmd for k in ("spotify", "play music", "play a song", "start music")):
-        try:
-            if sys.platform == "win32":
-                os.startfile("spotify:")
-            else:
-                webbrowser.open("https://open.spotify.com")
-            return "Opening Spotify for you, sir."
-        except Exception:
-            webbrowser.open("https://open.spotify.com")
-            return "Opening Spotify in your browser."
+# ─── Live Desktop Action Feedback Handler ────────────────────────────────────
+def _on_desktop_action_status(msg: str):
+    """Updates live UI and status line when desktop actions run."""
+    state.status_line = msg
+    ui_msg_q.put(msg)
 
-    # Chrome / Browser
-    if any(k in cmd for k in ("open chrome", "launch chrome", "open browser", "open google")):
-        try:
-            if sys.platform == "win32":
-                chrome_path = None
-                for base in (
-                    os.environ.get("ProgramFiles", r"C:\Program Files"),
-                    os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
-                    os.environ.get("LOCALAPPDATA", ""),
-                ):
-                    p = os.path.join(base, "Google", "Chrome", "Application", "chrome.exe")
-                    if os.path.isfile(p):
-                        chrome_path = p
-                        break
-                if chrome_path:
-                    subprocess.Popen([chrome_path, "https://www.google.com"])
-                else:
-                    webbrowser.open("https://www.google.com")
-            else:
-                webbrowser.open("https://www.google.com")
-            return "Opening Google Chrome."
-        except Exception as e:
-            return f"Attempted to open Chrome: {e}"
-
-    # YouTube
-    if any(k in cmd for k in ("open youtube", "launch youtube")):
-        webbrowser.open("https://www.youtube.com")
-        return "Opening YouTube for you."
-
-    # Cursor / VS Code Code Editor Focus
-    if any(k in cmd for k in ("open cursor", "focus cursor", "open code", "open editor", "open vs code")):
-        if sys.platform == "win32":
-            try:
-                user32 = ctypes.windll.user32
-                top_hwnd = None
-                
-                @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
-                def _enum_windows(hwnd, _lparam):
-                    nonlocal top_hwnd
-                    if user32.IsWindowVisible(hwnd):
-                        length = user32.GetWindowTextLengthW(hwnd)
-                        if length > 0:
-                            buf = ctypes.create_unicode_buffer(length + 1)
-                            user32.GetWindowTextW(hwnd, buf, length + 1)
-                            title = buf.value.lower()
-                            if "cursor" in title or "visual studio code" in title:
-                                top_hwnd = hwnd
-                                return False
-                    return True
-
-                user32.EnumWindows(_enum_windows, 0)
-                if top_hwnd:
-                    user32.ShowWindow(top_hwnd, 9)  # SW_RESTORE
-                    user32.SetForegroundWindow(top_hwnd)
-                    return "Brought your code editor to focus."
-            except Exception:
-                pass
-        
-        # Fallback to launch
-        editor = shutil.which("cursor") or shutil.which("code")
-        if editor:
-            subprocess.Popen([editor])
-            return "Launched code editor."
-        return "Code editor command not found in PATH."
-
-    return None
 def _tts_worker():
     if not TTS_OK:
         return
@@ -589,27 +512,23 @@ def _brain_worker():
         text = chat_q.get()
         _set_emotion(Emotion.THINKING)
 
-        # 1. Check for DesktopController actions (screen analysis, search, media, apps)
-        controller_reply = DesktopController.execute_command(text)
+        # 1. Check for DesktopController actions with real-time UI status updates
+        controller_reply = DesktopController.execute_command(
+            text, 
+            status_callback=_on_desktop_action_status
+        )
         if controller_reply:
             _set_emotion(Emotion.HAPPY)
             speak(controller_reply)
             chat_q.task_done()
             continue
 
-        # 2. Check for additional Jarvis desktop window actions
-        action_reply = execute_desktop_action(text)
-        if action_reply:
-            _set_emotion(Emotion.HAPPY)
-            speak(action_reply)
-            chat_q.task_done()
-            continue
-
-        # 3. Contextual LLM Reasoning with screen & camera observations
+        # 2. Contextual LLM Reasoning with screen & camera observations
         msgs = [{"role": "system", "content": SYS}]
         
         # Inject live screen glimpse if relevant to question
-        if any(w in text.lower() for w in ("screen", "code", "file", "window", "reading", "browser", "document")):
+        if any(w in text.lower() for w in ("screen", "code", "file", "window", "reading", "browser", "document", "error", "bug")):
+            state.status_line = "Analyzing live screen..."
             screen_analysis = DesktopController.analyze_live_screen(text)
             msgs.append({"role": "system", "content": f"[Live Screen Observation]: {screen_analysis}"})
 
