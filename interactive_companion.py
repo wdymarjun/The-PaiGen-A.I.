@@ -11,7 +11,7 @@ Features:
 - Grounded citations lookup: `/cite <topic>`.
 """
 
-import sys
+import os
 from datetime import datetime
 from typing import Optional
 
@@ -19,6 +19,7 @@ from paigen.brain.cognitive import CognitiveBrain, TelemetryContext
 from paigen.brain.interactive_attunement import HumanNatureAttuner
 from paigen.brain.knowledge.retriever import LocalKnowledgeRetriever
 from paigen.database.sqlite_store import SQLiteWALStore
+from paigen.senses.camera import CameraUnavailableError, VisionModelError, capture_and_describe
 
 
 def print_banner(db: SQLiteWALStore):
@@ -37,6 +38,8 @@ def print_banner(db: SQLiteWALStore):
     print("  /history             -> View persistent message history from SQLite")
     print("  /clear               -> Securely clear current chat session history")
     print("  /cite <question>     -> Retrieve verified sources & literature citations")
+    print("  /see [question]      -> Capture one frame and describe it locally")
+    print("  /forget-seeing       -> Delete saved camera descriptions")
     print("  /override <key> <v>  -> Set manual override (e.g. /override mood Focus)")
     print("  /unoverride <key>    -> Remove a specific manual override")
     print("  /overrides           -> View all active persistent overrides")
@@ -122,6 +125,29 @@ def run_interactive_session():
                         print(f"  Source: {r.document.citation_tag}")
                         print(f"  Evidence: {r.snippet}\n")
                     print("-------------------------------------------------")
+                continue
+
+            elif user_msg.lower().startswith("/see"):
+                question = user_msg[4:].strip() or "What is visible around me? Describe objects, layout, and readable text."
+                model_name = os.getenv("PAIGEN_VISION_MODEL", "qwen2.5vl:3b")
+                print(f"[*] Opening camera briefly. Sending one frame to local Ollama model '{model_name}'.")
+                try:
+                    description = capture_and_describe(
+                        question=question,
+                        model_name=model_name,
+                        ollama_base_url=brain.ollama_base_url,
+                    )
+                except (CameraUnavailableError, VisionModelError) as exc:
+                    print(f"[!] Visual perception unavailable: {exc}")
+                    continue
+                db.add_visual_observation(session_id, question, description)
+                print(f"\n[PaiGen vision] > {description}")
+                print("[*] Saved the text description for later conversation; the camera image was discarded.")
+                continue
+
+            elif user_msg.lower() == "/forget-seeing":
+                deleted = db.clear_visual_observations(session_id)
+                print(f"[*] Deleted {deleted} saved camera descriptions.")
                 continue
 
             elif user_msg.lower().startswith("/override"):

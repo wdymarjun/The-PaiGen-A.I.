@@ -103,6 +103,46 @@ class SQLiteWALStore:
                 );
             """)
 
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS visual_observations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    observed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    question TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+                );
+            """)
+
+    def add_visual_observation(self, session_id: str, question: str, description: str) -> int:
+        """Persist a text description only; camera images are never retained."""
+        with self._lock, self._connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO visual_observations (session_id, question, description) VALUES (?, ?, ?)",
+                (session_id, question, description),
+            )
+            return cursor.lastrowid
+
+    def get_recent_visual_observations(self, session_id: str, limit: int = 3) -> List[Dict[str, str]]:
+        """Return recent camera descriptions in chronological order."""
+        with self._lock, self._connection() as conn:
+            rows = conn.execute(
+                "SELECT observed_at, question, description FROM visual_observations "
+                "WHERE session_id = ? ORDER BY id DESC LIMIT ?",
+                (session_id, limit),
+            ).fetchall()
+            return [dict(row) for row in reversed(rows)]
+
+    def clear_visual_observations(self, session_id: str) -> int:
+        """Delete saved descriptions from explicit camera observations."""
+        with self._lock, self._connection() as conn:
+            cursor = conn.execute(
+                "DELETE FROM visual_observations WHERE session_id = ?",
+                (session_id,),
+            )
+            return cursor.rowcount
+
     def get_or_create_session(self, session_id: str = "default_session", title: str = "Primary Session") -> str:
         with self._lock, self._connection() as conn:
             cursor = conn.cursor()
@@ -201,6 +241,7 @@ class SQLiteWALStore:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
             deleted = cursor.rowcount
+            conn.execute("DELETE FROM visual_observations WHERE session_id = ?", (session_id,))
             cursor.execute("UPDATE sessions SET last_active = CURRENT_TIMESTAMP WHERE session_id = ?", (session_id,))
             return deleted
 

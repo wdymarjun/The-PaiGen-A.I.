@@ -148,6 +148,19 @@ class CognitiveBrain:
 
         override_status = " [ACTIVE USER OVERRIDES APPLIED - Ground Truth]" if ctx.is_user_override else " [Sensor/Heuristic Estimate]"
 
+        visual_memory = self.db.get_recent_visual_observations(ctx.session_id, limit=3)
+        visual_context = ""
+        if visual_memory:
+            entries = [
+                f"- Question: {item['question']}\n  Observation: {item['description']}"
+                for item in visual_memory
+            ]
+            visual_context = (
+                "\nRECENT USER-REQUESTED CAMERA OBSERVATIONS (descriptions, not stored images):\n"
+                + "\n".join(entries)
+                + "\nTreat these as past observations; ask the user to look again if current visual state matters.\n"
+            )
+
         prompt = f"""You are PaiGen AI, a 100% local, privacy-first companion created by {ctx.user_name} Singh.
 
 SYSTEM STATUS & ACTIVE TELEMETRY{override_status}:
@@ -168,6 +181,7 @@ ACTIVE BEHAVIORAL DIRECTIVE:
     trust_level=ctx.trust_score,
     forced_phase_name=override_phase
 )}
+{visual_context}
 {cited_block}
 {HistoricalAdvisor.build_epistemic_system_prompt_addon()}
 

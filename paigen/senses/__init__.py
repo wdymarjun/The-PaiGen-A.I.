@@ -17,6 +17,7 @@ from paigen.senses.emotion_visual_searcher import (
     MediaEmotionResult,
     EmotionVisualSearcher,
 )
+from paigen.senses.camera import CameraUnavailableError, VisionModelError, capture_and_describe
 
 __all__ = [
     "FacialActionUnit",
@@ -29,4 +30,7 @@ __all__ = [
     "CANONICAL_WIKIMEDIA_EMOTIONS",
     "MediaEmotionResult",
     "EmotionVisualSearcher",
+    "CameraUnavailableError",
+    "VisionModelError",
+    "capture_and_describe",
 ]
