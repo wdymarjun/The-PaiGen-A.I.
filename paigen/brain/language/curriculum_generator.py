@@ -14,6 +14,8 @@ from typing import Dict, List, Any
 from paigen.brain.language.alphabets import LanguageAlphabetRegistry
 from paigen.brain.language.vocab import VocabularyRegistry
 from paigen.brain.language.statements import StatementRegistry
+from paigen.brain.knowledge.world_history import WorldHistoryRegistry
+from paigen.brain.knowledge.human_condition import HumanConditionRegistry
 
 
 class CurriculumDatasetGenerator:
@@ -110,12 +112,57 @@ class CurriculumDatasetGenerator:
             })
         return records
 
+    def generate_history_curriculum(self) -> List[Dict[str, Any]]:
+        """Level 4: World History, The French Revolution, and The Human Condition."""
+        records = []
+        # World History Events & The French Revolution
+        for ev in WorldHistoryRegistry.get_all():
+            records.append({
+                "stage": 3,
+                "category": "world_history_and_statecraft",
+                "instruction": (
+                    f"Analyze the historical significance of '{ev.title}' ({ev.era_region}). "
+                    f"Detail the critical mistakes, enduring lessons, and relevance to tactical AI decision-making."
+                ),
+                "input": f"Event: {ev.title}",
+                "output": (
+                    f"Event: {ev.title} ({ev.era_region})\n"
+                    f"Context: {ev.core_context}\n\n"
+                    f"Critical Mistakes:\n" + "\n".join(f"- {m}" for m in ev.critical_mistakes) + "\n\n"
+                    f"Enduring Lessons:\n" + "\n".join(f"- {l}" for l in ev.enduring_lessons) + "\n\n"
+                    f"Strategic AI Guidance:\n{ev.relevance_to_ai_advisor}"
+                ),
+                "metadata": {"tags": ev.tags, "event_id": ev.event_id}
+            })
+
+        # Human Condition Mental Models
+        for model in HumanConditionRegistry.get_all():
+            records.append({
+                "stage": 3,
+                "category": "human_condition_epistemology",
+                "instruction": (
+                    f"Explain the human psychological model '{model.name}', its biological vulnerability, "
+                    f"and how PaiGen AI supports the human user."
+                ),
+                "input": f"Mental Model: {model.name}",
+                "output": (
+                    f"Model: {model.name}\n"
+                    f"Core Insight: {model.core_insight}\n"
+                    f"Human Vulnerability: {model.human_vulnerability}\n"
+                    f"Companion Guidance: {model.companion_guidance}"
+                ),
+                "metadata": {"tags": model.tags, "model_id": model.model_id}
+            })
+
+        return records
+
     def export_all(self) -> Path:
         """Compiles and exports the complete curriculum into JSONL."""
         all_records = (
             self.generate_alphabet_curriculum() +
             self.generate_vocabulary_curriculum() +
-            self.generate_statement_curriculum()
+            self.generate_statement_curriculum() +
+            self.generate_history_curriculum()
         )
 
         output_file = self.output_dir / "paigen_language_curriculum.jsonl"

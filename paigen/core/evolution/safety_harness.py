@@ -56,3 +56,4 @@ class SafetyHarness:
             return True
         logger.error(f"[X] Snapshot not found for rollback: {snapshot_path}")
         return False
+
