@@ -142,3 +142,4 @@ class LanguageAlphabetRegistry:
             "hindi_vyanjan": len(cls.HINDI_VYANJAN),
             "hinglish_primitives": len(cls.HINGLISH_MAPPINGS),
         }
+
