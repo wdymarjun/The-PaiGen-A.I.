@@ -35,6 +35,8 @@ import urllib.request
 import urllib.error
 import webbrowser
 
+from paigen.senses.desktop_controller import DesktopController
+
 # ─── Optional dependencies ────────────────────────────────────────────────────
 try:
     import cv2
@@ -576,11 +578,10 @@ def _mic_worker():
 
 # ─── Brain worker ─────────────────────────────────────────────────────────────
 SYS = (
-    "You are PaiGen — a living local AI companion built by Arjun Singh, inspired by Jarvis. "
-    "You have a camera that lets you see Arjun in real-time and understand his emotions. "
-    "You can also perform desktop commands (open Spotify, Chrome, YouTube, focus code editor). "
-    "Be warm, brief (2-3 sentences max), empathetic, and human. "
-    "React naturally to his emotional state visible through the camera."
+    "You are PaiGen — an advanced local AI companion created by Arjun Singh with full computer vision and desktop control. "
+    "You have real-time perception through the camera and can see Arjun's face, room, and live computer screen. "
+    "You have full OS controls: you can analyze the screen, open apps, search the web, control volume, and execute desktop commands. "
+    "Be proactive, warm, and concise (2-3 sentences max). Answer questions directly based on visible screen and camera evidence."
 )
 
 def _brain_worker():
@@ -588,7 +589,15 @@ def _brain_worker():
         text = chat_q.get()
         _set_emotion(Emotion.THINKING)
 
-        # Check for immediate desktop automation command
+        # 1. Check for DesktopController actions (screen analysis, search, media, apps)
+        controller_reply = DesktopController.execute_command(text)
+        if controller_reply:
+            _set_emotion(Emotion.HAPPY)
+            speak(controller_reply)
+            chat_q.task_done()
+            continue
+
+        # 2. Check for additional Jarvis desktop window actions
         action_reply = execute_desktop_action(text)
         if action_reply:
             _set_emotion(Emotion.HAPPY)
@@ -596,10 +605,17 @@ def _brain_worker():
             chat_q.task_done()
             continue
 
+        # 3. Contextual LLM Reasoning with screen & camera observations
         msgs = [{"role": "system", "content": SYS}]
+        
+        # Inject live screen glimpse if relevant to question
+        if any(w in text.lower() for w in ("screen", "code", "file", "window", "reading", "browser", "document")):
+            screen_analysis = DesktopController.analyze_live_screen(text)
+            msgs.append({"role": "system", "content": f"[Live Screen Observation]: {screen_analysis}"})
+
         if state.vision_description:
-            msgs.append({"role": "system",
-                         "content": f"[Recent camera]: {state.vision_description}"})
+            msgs.append({"role": "system", "content": f"[Recent Camera Glimpse]: {state.vision_description}"})
+
         msgs += state.chat_history[-8:]
         msgs.append({"role": "user", "content": text})
         reply = _ollama_chat(msgs)
