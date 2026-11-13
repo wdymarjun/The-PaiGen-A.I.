@@ -1,15 +1,17 @@
 """
-PaiGen AI: Live Screen Perception & Autonomous OS Action Engine
+PaiGen AI: Autonomous Screen Perception & Computer Action Engine
 Architect: Arjun Singh
 
-Gives PaiGen autonomous execution over the Windows Desktop:
-1. Autonomous Intent Classifier & Action Dispatcher:
-   Interprets fuzzy natural language instructions and translates them directly into OS actions
-   without giving conversational lectures.
-2. Screen Vision Reasoning:
-   Captures active desktop in volatile RAM, analyzes UI, and reports what the user is working on.
-3. System & App Execution:
-   Directly launches applications, Windows shell folders, browser tabs, media, volume, and hotkeys.
+Workflow:
+1. Live Screen Analysis: Captures the screen in RAM to understand the current visual context.
+2. Cognitive Planning: Formulates a step-by-step strategy to execute user intent.
+3. Execution:
+   - Web Navigation (Netflix, Prime Video, JioCinema, YouTube, Google, custom URLs)
+   - Browser Tab Controls (New tab, close tab, next/prev tab, reopen closed tab)
+   - Screen Interaction (Scroll up/down, page up/down, zoom in/out/reset)
+   - Media Controls (Play/pause, fullscreen toggle, volume, mute)
+   - Windows Desktop Actions (Launch apps, shell folders, Alt-Tab, minimize all)
+4. Output: Performs the action and speaks/displays the result.
 """
 
 import base64
@@ -22,6 +24,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -38,7 +41,7 @@ except ImportError:
 try:
     import pyautogui
     PYAUTOGUI_OK = True
-    pyautogui.FAILSAFE = False  # Avoid false-positive failsafe exceptions during automated keystrokes
+    pyautogui.FAILSAFE = False  # Avoid interruption during automated keyboard/mouse macros
 except ImportError:
     PYAUTOGUI_OK = False
 
@@ -47,7 +50,7 @@ VISION_MODEL = os.getenv("PAIGEN_VISION_MODEL", "qwen2.5vl:3b")
 
 
 class DesktopController:
-    """Provides screen perception and automated execution for PaiGen."""
+    """Provides complete computer vision and execution capabilities for PaiGen."""
 
     COMMON_APPS = {
         "notepad": "notepad.exe",
@@ -88,6 +91,21 @@ class DesktopController:
         "desktop folder": "shell:desktop",
     }
 
+    STREAMING_PLATFORMS = {
+        "prime video": "https://www.primevideo.com/search/ref=atv_nb_sr?phrase={q}",
+        "prime": "https://www.primevideo.com/search/ref=atv_nb_sr?phrase={q}",
+        "amazon prime": "https://www.primevideo.com/search/ref=atv_nb_sr?phrase={q}",
+        "jio": "https://www.jiocinema.com/search/{q}",
+        "jiocinema": "https://www.jiocinema.com/search/{q}",
+        "jio cinema": "https://www.jiocinema.com/search/{q}",
+        "netflix": "https://www.netflix.com/search?q={q}",
+        "hotstar": "https://www.hotstar.com/in/explore?search_query={q}",
+        "disney": "https://www.hotstar.com/in/explore?search_query={q}",
+        "disney hotstar": "https://www.hotstar.com/in/explore?search_query={q}",
+        "youtube": "https://www.youtube.com/results?search_query={q}",
+        "yt": "https://www.youtube.com/results?search_query={q}",
+    }
+
     @staticmethod
     def capture_screen_base64(max_dimension: int = 1280) -> Optional[str]:
         """Captures the active screen in volatile RAM via mss/PIL, scales to max_dimension, and returns base64."""
@@ -117,10 +135,10 @@ class DesktopController:
 
     @classmethod
     def analyze_live_screen(cls, question: str = "What is currently displayed on my screen?") -> str:
-        """Grabs the screen and asks qwen2.5vl:3b to analyze what the user is working on."""
+        """Captures the screen and uses qwen2.5vl:3b to analyze the live state."""
         b64_img = cls.capture_screen_base64()
         if not b64_img:
-            return "Unable to capture the screen at this moment. Ensure the window is not locked."
+            return "Unable to capture the screen at this moment."
 
         payload = {
             "model": VISION_MODEL,
@@ -129,7 +147,7 @@ class DesktopController:
                 "role": "user",
                 "content": (
                     "You have direct vision of the user's computer screen. "
-                    "Analyze the open windows, active code, browser tabs, and desktop content accurately and concisely. "
+                    "Analyze the open windows, active software, code, browser tabs, or media accurately. "
                     "Question: " + question
                 ),
                 "images": [b64_img]
@@ -155,7 +173,7 @@ class DesktopController:
         """Uses Ollama to think, structure, and draft a natural, human-like message to a friend."""
         prompt = (
             f"You are Arjun's personal AI. Arjun wants to send a message to his friend '{recipient}'. "
-            f"Here is what Arjun wants to say or explain: \"{concept}\". "
+            f"Here is what Arjun wants to say: \"{concept}\". "
             "Write a clear, friendly, natural message ready to send. "
             "Do NOT include subject lines, preamble, or placeholders. Output ONLY the message text."
         )
@@ -176,50 +194,30 @@ class DesktopController:
                 res = json.loads(resp.read().decode("utf-8"))
                 return res.get("message", {}).get("content", "").strip().strip('"')
         except Exception:
-            # Fallback simple template
             return f"Hey {recipient}, {concept}"
 
     @classmethod
     def autonomous_whatsapp_send(cls, contact_name: str, message_text: str):
-        """
-        Background autonomous worker that:
-        1. Launches WhatsApp Web or Desktop application.
-        2. Waits for the application window to load.
-        3. Uses Windows keyboard simulation (Ctrl+F or Search) to locate the contact.
-        4. Types the friend's name and presses Enter to open their chat.
-        5. Types the drafted message and presses Enter to physically send it.
-        """
+        """Autonomous background worker to launch WhatsApp, input text, and send."""
         def _worker():
             try:
-                # 1. Open WhatsApp with pre-composed message
                 encoded_msg = urllib.parse.quote(message_text)
                 whatsapp_url = f"https://web.whatsapp.com/send?text={encoded_msg}"
                 webbrowser.open(whatsapp_url)
-
-                # Wait for browser and chat to load
                 time.sleep(7.0)
-
                 if PYAUTOGUI_OK:
-                    # WhatsApp Web automatically focuses the chat input when loaded via send?text=
-                    # Press Enter to send the pre-loaded text
                     pyautogui.press("enter")
                     time.sleep(0.5)
-
-                    # If not focused, attempt search & send sequence:
-                    # Press Tab or Enter to confirm
                     pyautogui.press("enter")
             except Exception as e:
                 print(f"[DesktopController] Autonomous send error: {e}")
 
-        # Run in a background thread so UI stays 100% responsive
-        import threading
         threading.Thread(target=_worker, daemon=True).start()
 
     @classmethod
     def launch_target(cls, target: str) -> bool:
         """Launches an app, protocol URI, or executable reliably on Windows."""
         target = target.strip()
-        # Protocol URI or Windows Shell folder
         if target.endswith(":") or target.startswith("shell:") or target.startswith("http:") or target.startswith("https:"):
             try:
                 os.startfile(target)
@@ -228,7 +226,6 @@ class DesktopController:
                 webbrowser.open(target)
                 return True
 
-        # Chrome special resolver
         if target == "chrome":
             chrome_path = None
             for base in (
@@ -248,7 +245,6 @@ class DesktopController:
                 webbrowser.open("https://www.google.com")
                 return True
 
-        # Executable resolution
         exe = shutil.which(target) or target
         try:
             subprocess.Popen([exe])
@@ -264,41 +260,112 @@ class DesktopController:
     @classmethod
     def execute_command(cls, command_str: str) -> Optional[str]:
         """
-        Interprets natural human speech / text to immediately execute desktop actions.
-        Returns a confirmation message if an action was executed, or None to fall back to general LLM chat.
+        Executes autonomous step-by-step actions based on user command:
+        1. Analyzes live screen state if requested.
+        2. Media / streaming search (Prime Video, JioCinema, Netflix, YouTube).
+        3. Browser navigation & tab management (zoom, scroll, new tab, close tab).
+        4. Operating system & application workflows.
         """
         raw = command_str.strip()
         cmd = raw.lower()
 
-        # ── 1. Live Screen Perception ─────────────────────────────────────────
+        # ── 1. Live Screen Analysis ───────────────────────────────────────────
         if any(w in cmd for w in ("analyze my screen", "see my screen", "what is on my screen", 
                                   "look at my screen", "read my screen", "what am i working on", 
                                   "check my screen", "read screen")):
             return cls.analyze_live_screen(raw)
 
-        # ── 2. Search Web & Google ───────────────────────────────────────────
+        # ── 2. Screen Scrolling Controls ─────────────────────────────────────
+        if PYAUTOGUI_OK:
+            if any(w in cmd for w in ("scroll down", "go down", "page down")):
+                pyautogui.scroll(-750)
+                return "Scrolled down."
+
+            if any(w in cmd for w in ("scroll up", "go up", "page up")):
+                pyautogui.scroll(750)
+                return "Scrolled up."
+
+            if any(w in cmd for w in ("zoom in", "magnify", "make bigger")):
+                pyautogui.hotkey("ctrl", "+")
+                return "Zoomed in."
+
+            if any(w in cmd for w in ("zoom out", "make smaller", "shrink")):
+                pyautogui.hotkey("ctrl", "-")
+                return "Zoomed out."
+
+            if any(w in cmd for w in ("reset zoom", "normal zoom", "default zoom")):
+                pyautogui.hotkey("ctrl", "0")
+                return "Reset zoom to 100%."
+
+            # ── 3. Browser Tab Controls ──────────────────────────────────────
+            if any(w in cmd for w in ("new tab", "open a new tab", "open new tab")):
+                pyautogui.hotkey("ctrl", "t")
+                return "Opened a new tab."
+
+            if any(w in cmd for w in ("close tab", "close this tab", "shut tab")):
+                pyautogui.hotkey("ctrl", "w")
+                return "Closed the current tab."
+
+            if any(w in cmd for w in ("reopen tab", "restore tab", "undo close tab")):
+                pyautogui.hotkey("ctrl", "shift", "t")
+                return "Reopened the closed tab."
+
+            if any(w in cmd for w in ("next tab", "switch tab", "next page")):
+                pyautogui.hotkey("ctrl", "tab")
+                return "Switched to the next tab."
+
+            if any(w in cmd for w in ("previous tab", "prev tab", "back tab")):
+                pyautogui.hotkey("ctrl", "shift", "tab")
+                return "Switched to previous tab."
+
+            if any(w in cmd for w in ("reload page", "refresh page", "refresh")):
+                pyautogui.hotkey("ctrl", "r")
+                return "Refreshed the page."
+
+            if any(w in cmd for w in ("fullscreen", "toggle fullscreen")):
+                pyautogui.press("f11")
+                return "Toggled fullscreen."
+
+            if any(w in cmd for w in ("play video", "pause video", "toggle pause", "stop video")):
+                pyautogui.press("space")
+                return "Toggled video playback."
+
+        # ── 4. Streaming Movies & Shows on Specific Websites ─────────────────
+        # Matches commands like:
+        # "open avengers on jio"
+        # "play my fault on prime video"
+        # "search stranger things on netflix"
+        # "open iron man on hotstar"
+        for platform_key, search_url_template in cls.STREAMING_PLATFORMS.items():
+            pattern = (
+                r"(?:open|play|search|watch|find)\s+(.+?)\s+(?:on|in)\s+" + re.escape(platform_key) + r"\b"
+            )
+            match = re.search(pattern, cmd)
+            if match:
+                title = match.group(1).strip()
+                # Clean filler words
+                for filler in ("movie", "the movie", "show", "series", "video"):
+                    if title.endswith(" " + filler):
+                        title = title[:-len(filler)-1].strip()
+                
+                target_url = search_url_template.format(q=urllib.parse.quote(title))
+                webbrowser.open(target_url)
+                return f"Opening '{title.title()}' on {platform_key.title()}."
+
+            # Direct platform open (e.g. "open prime video", "open jiocinema")
+            if re.search(r"\b(?:open|launch|go to)\s+" + re.escape(platform_key) + r"\b", cmd):
+                base_domain = search_url_template.split("/search")[0].split("/in/explore")[0]
+                webbrowser.open(base_domain)
+                return f"Opening {platform_key.title()}."
+
+        # ── 5. General Web Search & Google ───────────────────────────────────
         search_match = re.search(r"(?:search for|search|google)\s+(.+)", cmd)
         if search_match and not any(k in cmd for k in ("open", "launch")):
             query = search_match.group(1).strip()
-            encoded = urllib.parse.quote(query)
-            webbrowser.open(f"https://www.google.com/search?q={encoded}")
+            webbrowser.open(f"https://www.google.com/search?q={urllib.parse.quote(query)}")
             return f"Done. Searching Google for '{query}'."
 
-        # ── 3. YouTube Specific Search / Play ────────────────────────────────
-        if "youtube" in cmd:
-            yt_clean = cmd.replace("open youtube", "").replace("launch youtube", "").replace("on youtube", "").replace("in youtube", "").strip()
-            # Remove leading connectors like 'and play', 'and search', 'play', 'search'
-            for prefix in ("and play ", "and search for ", "and search ", "play ", "search for ", "search "):
-                if yt_clean.startswith(prefix):
-                    yt_clean = yt_clean[len(prefix):].strip()
-            if yt_clean:
-                webbrowser.open(f"https://www.youtube.com/results?search_query={urllib.parse.quote(yt_clean)}")
-                return f"Opening YouTube and playing '{yt_clean}'."
-            else:
-                webbrowser.open("https://www.youtube.com")
-                return "Opened YouTube for you."
-
-        # ── 4. Open Websites / URLs ──────────────────────────────────────────
+        # ── 6. Open Specific Websites / URLs ─────────────────────────────────
         url_match = re.search(r"(?:open|go to|visit)\s+([a-zA-Z0-9-]+\.(?:com|org|net|io|ai|edu|gov|co|in)[^\s]*)", cmd)
         if url_match:
             site = url_match.group(1).strip()
@@ -307,8 +374,7 @@ class DesktopController:
             webbrowser.open(site)
             return f"Navigating to {site}."
 
-        # ── 5. App & Shell Folder Launching ──────────────────────────────────
-        # Check against dictionary of common apps & shell targets
+        # ── 7. App & Shell Folder Launching ──────────────────────────────────
         for app_alias, app_target in cls.COMMON_APPS.items():
             pattern = r"\b(?:open|launch|start|run|show)\s+(?:my\s+)?" + re.escape(app_alias) + r"\b"
             if re.search(pattern, cmd):
@@ -318,7 +384,7 @@ class DesktopController:
                 else:
                     return f"Attempted to open {app_alias}, but could not locate the executable."
 
-        # ── 6. Focus Code Editor (Cursor / VS Code) ──────────────────────────
+        # ── 8. Focus Code Editor (Cursor / VS Code) ──────────────────────────
         if any(w in cmd for w in ("focus cursor", "bring up cursor", "focus code", "focus editor")):
             try:
                 user32 = ctypes.windll.user32
@@ -348,7 +414,23 @@ class DesktopController:
             cls.launch_target("cursor")
             return "Launched code editor."
 
-        # ── 7. Native OS Controls (PyAutoGUI) ─────────────────────────────────
+        # ── 9. Autonomous WhatsApp Messaging ─────────────────────────────────
+        msg_match = re.search(
+            r"(?:send\s+(?:a\s+)?message\s+to|text|message)\s+([a-zA-Z0-9_\s]+?)\s+(?:saying|explaining|telling\s+(?:him|her|them)?|that|about)\s+(.+)",
+            raw,
+            re.IGNORECASE
+        )
+        if msg_match:
+            friend_name = msg_match.group(1).strip()
+            explanation = msg_match.group(2).strip()
+            drafted_message = cls.draft_friend_message(friend_name, explanation)
+            cls.autonomous_whatsapp_send(friend_name, drafted_message)
+            return (
+                f"Taking control of screen: Navigating to WhatsApp, finding {friend_name}, "
+                f"typing: \"{drafted_message}\", and sending it for you now."
+            )
+
+        # ── 10. Volume & System Hotkeys ──────────────────────────────────────
         if PYAUTOGUI_OK:
             if any(w in cmd for w in ("volume up", "increase volume", "louder")):
                 for _ in range(6):
@@ -377,36 +459,11 @@ class DesktopController:
                 pyautogui.screenshot(desktop_path)
                 return f"Captured and saved screenshot to your Desktop: {os.path.basename(desktop_path)}."
 
-        # ── 8. Autonomous Messaging to Friends (WhatsApp / Chat Automation) ─
-        # Matches patterns like:
-        # "send message to Rahul saying I will be late"
-        # "send a message to Aman explaining that the project is done"
-        # "text Rohit that we are meeting tomorrow"
-        msg_match = re.search(
-            r"(?:send\s+(?:a\s+)?message\s+to|text|message)\s+([a-zA-Z0-9_\s]+?)\s+(?:saying|explaining|telling\s+(?:him|her|them)?|that|about)\s+(.+)",
-            raw,
-            re.IGNORECASE
-        )
-        if msg_match:
-            friend_name = msg_match.group(1).strip()
-            explanation = msg_match.group(2).strip()
-
-            # Think & format a polished, warm human message using the brain
-            drafted_message = cls.draft_friend_message(friend_name, explanation)
-            
-            # Trigger full hands-off autonomous screen automation
-            cls.autonomous_whatsapp_send(friend_name, drafted_message)
-
-            return (
-                f"Taking control of screen: Navigating to WhatsApp, finding {friend_name}, "
-                f"typing: \"{drafted_message}\", and sending it for you now."
-            )
-
-        # ── 9. Direct Typing Automation ──────────────────────────────────────
+        # ── 11. Direct Typing Automation ─────────────────────────────────────
         type_match = re.search(r"^(?:type|write|paste)\s+(.+)$", raw, re.IGNORECASE)
         if type_match and PYAUTOGUI_OK:
             text_to_type = type_match.group(1).strip()
-            time.sleep(1.0)  # Brief pause so user focuses desired window
+            time.sleep(1.0)
             try:
                 import pyperclip
                 pyperclip.copy(text_to_type)
@@ -415,12 +472,10 @@ class DesktopController:
             except Exception as e:
                 return f"Could not type text: {e}"
 
-        # ── 10. Fuzzy Application Open Fallback ──────────────────────────────
-        # If the user says "open X" or "launch X", try launching X directly from Windows PATH / start
+        # ── 12. Fuzzy Application Open Fallback ──────────────────────────────
         open_match = re.search(r"^(?:please\s+)?(?:open|launch|start|run)\s+([a-zA-Z0-9_\-\.\s]+)$", cmd)
         if open_match:
             candidate = open_match.group(1).strip()
-            # Avoid matching conversational phrases
             if candidate not in ("up", "it", "this", "that", "the door", "your eyes", "a conversation"):
                 if cls.launch_target(candidate):
                     return f"Executed: opened {candidate}."
