@@ -18,6 +18,7 @@ from paigen.senses.emotion_visual_searcher import (
     EmotionVisualSearcher,
 )
 from paigen.senses.camera import CameraUnavailableError, VisionModelError, capture_and_describe
+from paigen.senses.desktop_controller import DesktopController
 
 __all__ = [
     "FacialActionUnit",
@@ -33,4 +34,5 @@ __all__ = [
     "CameraUnavailableError",
     "VisionModelError",
     "capture_and_describe",
+    "DesktopController",
 ]
