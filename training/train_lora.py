@@ -3,8 +3,9 @@ PaiGen AI: Standalone Local QLoRA Fine-Tuning Script
 Architect: Arjun Singh
 
 Runs strictly on local hardware (e.g., NVIDIA RTX 5050 Laptop GPU, 8GB VRAM).
-Fine-tunes a local base model on compiled curriculum datasets using 4-bit NF4
+Fine-tunes a local base model on compiled ChatML curriculum datasets using 4-bit NF4
 quantization and PEFT LoRA adapters.
+Compatible across modern TRL releases (supporting both SFTConfig and TrainingArguments).
 """
 
 import argparse
@@ -29,10 +30,11 @@ def run_training(
             TrainingArguments,
         )
         from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+        import trl
         from trl import SFTTrainer
     except ImportError as e:
-        print(f"[!] PyTorch/Transformers/PEFT not installed in current environment: {e}")
-        print("[!] Install dependencies with: pip install torch transformers datasets peft trl bitsandbytes")
+        print(f"[!] PyTorch/Transformers/PEFT/TRL not installed in current environment: {e}")
+        print("[!] Install pinned dependencies with: pip install -r requirements.txt")
         return False
 
     if not torch.cuda.is_available():
@@ -43,8 +45,9 @@ def run_training(
     vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
     print(f"[*] Initializing PaiGen Brain Fine-Tuning on: {base_model_id}")
     print(f"[*] Target GPU: {gpu_name} ({vram_gb:.2f} GB VRAM)")
+    print(f"[*] TRL Version: {trl.__version__}")
 
-    # 4-bit Quantization Configuration
+    # 4-bit Quantization Configuration for 8GB VRAM
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_quant_type="nf4",
@@ -78,29 +81,53 @@ def run_training(
 
     dataset = load_dataset("json", data_files=dataset_path, split="train")
 
-    training_args = TrainingArguments(
-        output_dir=output_dir,
-        per_device_train_batch_size=2,
-        gradient_accumulation_steps=4,
-        warmup_steps=10,
-        max_steps=max_steps,
-        learning_rate=2e-4,
-        fp16=True,
-        logging_steps=10,
-        save_strategy="steps",
-        save_steps=50,
-        report_to="none",  # Strict Invariant: Zero cloud telemetry
-    )
-
-    trainer = SFTTrainer(
-        model=model,
-        train_dataset=dataset,
-        peft_config=lora_config,
-        dataset_text_field="messages",
-        max_seq_length=1024,
-        tokenizer=tokenizer,
-        args=training_args,
-    )
+    # Adapt across TRL versions (SFTConfig in >=0.9 vs TrainingArguments in older)
+    if hasattr(trl, "SFTConfig"):
+        training_args = trl.SFTConfig(
+            output_dir=output_dir,
+            per_device_train_batch_size=2,
+            gradient_accumulation_steps=4,
+            warmup_steps=10,
+            max_steps=max_steps,
+            learning_rate=2e-4,
+            fp16=True,
+            logging_steps=10,
+            save_strategy="steps",
+            save_steps=50,
+            report_to="none",  # Strict Invariant: Zero cloud telemetry
+            max_seq_length=1024,
+            dataset_text_field="messages",
+        )
+        trainer = SFTTrainer(
+            model=model,
+            train_dataset=dataset,
+            peft_config=lora_config,
+            tokenizer=tokenizer,
+            args=training_args,
+        )
+    else:
+        training_args = TrainingArguments(
+            output_dir=output_dir,
+            per_device_train_batch_size=2,
+            gradient_accumulation_steps=4,
+            warmup_steps=10,
+            max_steps=max_steps,
+            learning_rate=2e-4,
+            fp16=True,
+            logging_steps=10,
+            save_strategy="steps",
+            save_steps=50,
+            report_to="none",
+        )
+        trainer = SFTTrainer(
+            model=model,
+            train_dataset=dataset,
+            peft_config=lora_config,
+            dataset_text_field="messages",
+            max_seq_length=1024,
+            tokenizer=tokenizer,
+            args=training_args,
+        )
 
     print("[*] Starting Local Training...")
     trainer.train()

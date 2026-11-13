@@ -1,6 +1,7 @@
 """
 PaiGen AI: Reviewable Patch Proposal Safety Tests
-Verifies that code evolution produces .patch files for review without altering source files.
+Verifies that code evolution produces .patch files for review without altering source files,
+and blocks path traversal security attempts.
 """
 
 import tempfile
@@ -43,12 +44,23 @@ class TestPatchProposalEngine(unittest.TestCase):
         self.assertIn("return x + 1", content)
         self.assertNotIn("return x * 2", content)
 
-        # Verify patch content
+        # Verify patch content includes safe application instructions
         with open(patch_path, "r", encoding="utf-8") as f:
             patch_text = f.read()
         self.assertIn("Optimize computation speed", patch_text)
-        self.assertIn("--- a/dummy_module.py", patch_text)
-        self.assertIn("+++ b/dummy_module.py", patch_text)
+        self.assertIn("HOW TO SAFELY TEST & APPLY THIS PATCH", patch_text)
+        self.assertIn("git apply", patch_text)
+
+    def test_rejects_path_traversal_attempts(self):
+        proposed_code = "print('hacked')"
+        success, msg, patch_path = self.engine.generate_reviewable_patch(
+            target_relative_path="../outside_repo.py",
+            proposed_code=proposed_code,
+            rationale="Malicious traversal attempt"
+        )
+        self.assertFalse(success)
+        self.assertIn("security violation", msg.lower())
+        self.assertIsNone(patch_path)
 
     def test_rejects_syntax_errors_in_proposals(self):
         invalid_code = "def broken(x\n    return x"

@@ -2,17 +2,20 @@
 PaiGen AI: SQLite WAL Persistence Layer
 Architect: Arjun Singh
 
-Thread-safe local SQLite database with Write-Ahead Logging (WAL mode)
-for chat session persistence, user message history, and explicit state overrides.
-Properly closes connections and releases file locks.
+Thread-safe local SQLite database with Write-Ahead Logging (WAL mode).
+Fixes:
+- Chronological ordering: Retrieves the most recent N messages and reverses them.
+- Accurate timestamp parsing: Handles both standard SQLite "YYYY-MM-DD HH:MM:SS" and ISO formats.
+- Session lifecycle: Complete message deletion, session reset, and session recreation.
+- Direct state override storage for deterministic persona driving.
 """
 
 from contextlib import contextmanager
+from datetime import datetime
 import json
+from pathlib import Path
 import sqlite3
 import threading
-from datetime import datetime
-from pathlib import Path
 from typing import Dict, Generator, List, Optional, Any
 from pydantic import BaseModel, Field
 
@@ -24,6 +27,26 @@ class ChatMessageRecord(BaseModel):
     content: str
     timestamp: datetime = Field(default_factory=datetime.now)
     metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+def parse_sqlite_timestamp(timestamp_str: str) -> datetime:
+    """Correctly parses SQLite CURRENT_TIMESTAMP ('YYYY-MM-DD HH:MM:SS') and ISO timestamps."""
+    if not timestamp_str:
+        return datetime.now()
+    
+    timestamp_str = str(timestamp_str).strip()
+    # Try standard SQLite format first: "2026-11-14 02:30:00"
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f"):
+        try:
+            return datetime.strptime(timestamp_str, fmt)
+        except ValueError:
+            continue
+
+    # Fallback to fromisoformat
+    try:
+        return datetime.fromisoformat(timestamp_str)
+    except Exception:
+        return datetime.now()
 
 
 class SQLiteWALStore:
@@ -53,7 +76,6 @@ class SQLiteWALStore:
 
     def _init_db(self):
         with self._lock, self._connection() as conn:
-            # Sessions table
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS sessions (
                     session_id TEXT PRIMARY KEY,
@@ -63,7 +85,6 @@ class SQLiteWALStore:
                 );
             """)
 
-            # Chat messages table
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS messages (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -76,7 +97,6 @@ class SQLiteWALStore:
                 );
             """)
 
-            # User state overrides table
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS user_overrides (
                     key TEXT PRIMARY KEY,
@@ -121,6 +141,10 @@ class SQLiteWALStore:
             return cursor.lastrowid
 
     def get_session_history(self, session_id: str, limit: int = 50) -> List[ChatMessageRecord]:
+        """
+        Fetches the MOST RECENT `limit` messages from the database,
+        then reverses them to return in proper chronological order (oldest -> newest).
+        """
         with self._lock, self._connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -128,7 +152,7 @@ class SQLiteWALStore:
                 SELECT id, session_id, role, content, timestamp, metadata_json
                 FROM messages
                 WHERE session_id = ?
-                ORDER BY id ASC
+                ORDER BY id DESC
                 LIMIT ?
                 """,
                 (session_id, limit)
@@ -137,26 +161,31 @@ class SQLiteWALStore:
             records = []
             for r in rows:
                 meta = json.loads(r["metadata_json"]) if r["metadata_json"] else {}
+                parsed_time = parse_sqlite_timestamp(r["timestamp"])
                 records.append(ChatMessageRecord(
                     id=r["id"],
                     session_id=r["session_id"],
                     role=r["role"],
                     content=r["content"],
-                    timestamp=datetime.fromisoformat(r["timestamp"]) if "T" in str(r["timestamp"]) else datetime.now(),
+                    timestamp=parsed_time,
                     metadata=meta
                 ))
+
+            # Reverse to chronological order (oldest to newest)
+            records.reverse()
             return records
 
     def clear_session_history(self, session_id: str) -> int:
-        """User control: securely wipes chat history for the given session."""
+        """Securely wipes chat history for the given session and updates last_active."""
         with self._lock, self._connection() as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
             deleted = cursor.rowcount
+            cursor.execute("UPDATE sessions SET last_active = CURRENT_TIMESTAMP WHERE session_id = ?", (session_id,))
             return deleted
 
     def set_override(self, key: str, value: str):
-        """User control: manually sets/overrides an inferred parameter."""
+        """User control: manually sets an explicit override."""
         with self._lock, self._connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -165,15 +194,21 @@ class SQLiteWALStore:
                 VALUES (?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP
                 """,
-                (key, str(value))
+                (key.strip().lower(), str(value).strip())
             )
 
     def get_override(self, key: str) -> Optional[str]:
         with self._lock, self._connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT value FROM user_overrides WHERE key = ?", (key,))
+            cursor.execute("SELECT value FROM user_overrides WHERE key = ?", (key.strip().lower(),))
             row = cursor.fetchone()
             return row["value"] if row else None
+
+    def delete_override(self, key: str) -> bool:
+        with self._lock, self._connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM user_overrides WHERE key = ?", (key.strip().lower(),))
+            return cursor.rowcount > 0
 
     def list_overrides(self) -> Dict[str, str]:
         with self._lock, self._connection() as conn:

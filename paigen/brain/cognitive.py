@@ -6,8 +6,8 @@ Interfaces strictly with local LLM runtimes (Ollama on localhost:11434).
 Features:
 - True line-by-line token streaming (`query_stream`) and synchronous chat (`query`).
 - Persistent SQLite WAL chat history with user controls.
-- Grounded Local Knowledge Retrieval with explicit [Citation: ...] tags.
-- Transparent uncertainty handling: Inferred states are marked as estimates with user overrides.
+- Grounded Local Knowledge Retrieval with real bibliographic [Source: ...] citations.
+- Active State Overrides: Explicit user overrides directly drive persona routing and state variables.
 - 100% offline, zero cloud calls.
 """
 
@@ -35,7 +35,6 @@ class TelemetryContext(BaseModel):
     is_deep_focus: bool = False
     trust_score: float = Field(10.0, ge=0.0, le=100.0)
     primary_language: str = "bilingual"  # "en", "hi", "hinglish", "bilingual"
-    # Transparency & Uncertainty metadata
     telemetry_confidence: float = Field(default=0.60, ge=0.0, le=1.0)
     is_user_override: bool = False
 
@@ -55,11 +54,65 @@ class CognitiveBrain:
         self.db = db_store or SQLiteWALStore()
         self.retriever = retriever or LocalKnowledgeRetriever()
 
-    def build_dynamic_system_prompt(self, ctx: TelemetryContext, user_query: str = "") -> str:
-        """Constructs persona system prompt modulated by live telemetry and cited knowledge."""
+    def apply_active_user_overrides(self, ctx: TelemetryContext):
+        """
+        Directly applies user overrides stored in SQLite into active state variables,
+        ensuring user commands deterministically control persona routing.
+        """
+        # Override 1: Fatigue
+        override_fatigue = self.db.get_override("fatigue")
+        if override_fatigue is not None:
+            try:
+                ctx.inferred_fatigue = float(override_fatigue)
+                ctx.is_user_override = True
+                ctx.telemetry_confidence = 1.0
+            except ValueError:
+                pass
 
-        # 1. Determine dominant persona based on fatigue and stress
-        if ctx.inferred_fatigue > 0.65 or ctx.inferred_valence < -0.35:
+        # Override 2: Mood / State
+        override_mood = self.db.get_override("mood")
+        if override_mood:
+            mood_lower = override_mood.lower()
+            ctx.is_user_override = True
+            ctx.telemetry_confidence = 1.0
+            if "focus" in mood_lower or "work" in mood_lower:
+                ctx.is_deep_focus = True
+                ctx.inferred_fatigue = 0.0
+                ctx.inferred_valence = 0.5
+                ctx.inferred_arousal = 0.7
+            elif "stress" in mood_lower or "frustrat" in mood_lower:
+                ctx.inferred_valence = -0.7
+                ctx.inferred_arousal = 0.8
+                ctx.is_deep_focus = False
+            elif "tired" in mood_lower or "exhaust" in mood_lower:
+                ctx.inferred_fatigue = 0.85
+                ctx.inferred_valence = -0.3
+                ctx.is_deep_focus = False
+            elif "happy" in mood_lower or "joy" in mood_lower:
+                ctx.inferred_valence = 0.85
+                ctx.inferred_arousal = 0.6
+                ctx.is_deep_focus = False
+
+        # Override 3: Language
+        override_lang = self.db.get_override("language")
+        if override_lang:
+            ctx.primary_language = override_lang
+            ctx.is_user_override = True
+
+    def build_dynamic_system_prompt(self, ctx: TelemetryContext, user_query: str = "") -> str:
+        """Constructs persona system prompt modulated by active telemetry and cited knowledge."""
+
+        # Apply user overrides directly to active state before routing
+        self.apply_active_user_overrides(ctx)
+
+        # Check for explicit persona mode override
+        override_persona = self.db.get_override("persona")
+
+        # Determine dominant persona based on active state variables
+        if override_persona:
+            persona_mode = override_persona.upper()
+            guidance = f"User explicitly commanded persona '{persona_mode}'. Follow this mode strictly."
+        elif ctx.inferred_fatigue > 0.65 or ctx.inferred_valence < -0.35:
             persona_mode = "EMPATHETIC_COMPANION"
             guidance = (
                 f"Arjun is exhibiting estimated signs of fatigue or stress (Confidence: {ctx.telemetry_confidence:.0%}). "
@@ -81,30 +134,24 @@ class CognitiveBrain:
                 "Engage naturally in English, Hindi, or Hinglish as appropriate to the context."
             )
 
-        # 2. Check for manual user state overrides in persistent store
-        override_phase = self.db.get_override("circadian_phase")
-        override_mood = self.db.get_override("user_mood")
-
-        override_notice = ""
-        if override_phase or override_mood:
-            override_notice = f"\nUSER-VERIFIED OVERRIDES: Phase='{override_phase or 'Auto'}', Mood='{override_mood or 'Auto'}' (Prioritize over heuristic estimates)."
-
-        # 3. Retrieve relevant citations from verified local knowledge base
+        # Retrieve relevant citations from verified local knowledge base
         cited_block = ""
         if user_query:
             cited_block = self.retriever.format_cited_context_block(user_query, top_k=2)
             if cited_block:
-                cited_block = f"\n{cited_block}\n(Cite these sources accurately when responding to factual questions).\n"
+                cited_block = f"\n{cited_block}\n(Note: When addressing factual claims, cite the exact source titles and authors provided above. If no sources were found, transparently state so.)\n"
+
+        override_status = " [ACTIVE USER OVERRIDES APPLIED - Ground Truth]" if ctx.is_user_override else " [Sensor/Heuristic Estimate]"
 
         prompt = f"""You are PaiGen AI, a 100% local, privacy-first companion created by {ctx.user_name} Singh.
 
-SYSTEM STATUS & INFERRED SIGNALS (Note: Sensor/heuristic estimates carry uncertainty):
+SYSTEM STATUS & ACTIVE TELEMETRY{override_status}:
 - User: {ctx.user_name} (Creator & Architect)
 - Dominant Persona Mode: {persona_mode}
 - Inferred Emotional Valence: {ctx.inferred_valence:+.2f} (Confidence: {ctx.telemetry_confidence:.0%})
 - Inferred Fatigue Level: {ctx.inferred_fatigue:.2f}
 - Trust Score: {ctx.trust_score:.1f}/100.0
-- Language Mode: {ctx.primary_language}{override_notice}
+- Language Mode: {ctx.primary_language}
 
 ACTIVE BEHAVIORAL DIRECTIVE:
 {guidance}
@@ -127,21 +174,24 @@ STRICT INVARIANT: You run 100% locally on localhost. Zero cloud calls."""
         user_input: str,
         ctx: Optional[TelemetryContext] = None,
     ) -> str:
-        """Synchronous query to local Ollama API with persistent SQLite session tracking."""
+        """Synchronous query to local Ollama API with chronological persistent history."""
         if ctx is None:
             ctx = TelemetryContext()
 
-        # Persist user message in SQLite WAL store
         self.db.get_or_create_session(ctx.session_id)
+
+        # 1. Fetch recent history chronologically (prior to adding new message)
+        history_records = self.db.get_session_history(ctx.session_id, limit=6)
+
+        # 2. Persist new user message
         self.db.add_message(ctx.session_id, "user", user_input)
 
         system_prompt = self.build_dynamic_system_prompt(ctx, user_query=user_input)
 
-        # Assemble conversation history from persistent SQLite
-        history_records = self.db.get_session_history(ctx.session_id, limit=6)
         messages = [{"role": "system", "content": system_prompt}]
         for rec in history_records:
             messages.append({"role": rec.role, "content": rec.content})
+        messages.append({"role": "user", "content": user_input})
 
         payload = {
             "model": self.model_name,
@@ -174,7 +224,6 @@ STRICT INVARIANT: You run 100% locally on localhost. Zero cloud calls."""
                 f"[Local Model Offline] Ollama is not currently responding at {self.ollama_base_url}. "
                 f"Ensure Ollama is started locally (`ollama serve`). (Error: {e})"
             )
-            # Persist fallback note
             self.db.add_message(ctx.session_id, "assistant", fallback, metadata={"offline_fallback": True})
             return fallback
 
@@ -183,21 +232,20 @@ STRICT INVARIANT: You run 100% locally on localhost. Zero cloud calls."""
         user_input: str,
         ctx: Optional[TelemetryContext] = None,
     ) -> Generator[str, None, None]:
-        """
-        True line-by-line token streaming generator from local Ollama API.
-        Yields individual tokens as they arrive, and persists the full completed response at the end.
-        """
+        """True line-by-line token streaming generator from local Ollama API."""
         if ctx is None:
             ctx = TelemetryContext()
 
         self.db.get_or_create_session(ctx.session_id)
+        history_records = self.db.get_session_history(ctx.session_id, limit=6)
         self.db.add_message(ctx.session_id, "user", user_input)
 
         system_prompt = self.build_dynamic_system_prompt(ctx, user_query=user_input)
-        history_records = self.db.get_session_history(ctx.session_id, limit=6)
+
         messages = [{"role": "system", "content": system_prompt}]
         for rec in history_records:
             messages.append({"role": rec.role, "content": rec.content})
+        messages.append({"role": "user", "content": user_input})
 
         payload = {
             "model": self.model_name,
