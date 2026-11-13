@@ -154,6 +154,7 @@ class PaiState:
     pupil_tx:              float      = 0.0
     pupil_ty:              float      = 0.0
     is_listening:          bool       = False
+    is_analyzing_voice:    bool       = False
     status_line:           str        = "PaiGen online"
     motion_score:          float      = 0.0
     detected_user_emotion: str        = ""
@@ -325,40 +326,86 @@ def _camera_worker():
 def _mic_worker():
     if not SR_OK: return
     r = sr.Recognizer()
-    r.pause_threshold = 0.75
-    r.energy_threshold = 280
+    # Fine-tuned for real-world voice interaction
+    r.dynamic_energy_threshold = True
+    r.dynamic_energy_adjustment_damping = 0.15
+    r.dynamic_energy_ratio = 1.5
+    r.pause_threshold = 1.2          # Wait 1.2s of silence so user finishes full sentence
+    r.non_speaking_duration = 0.6    # Allow natural pauses between words
+    r.phrase_threshold = 0.3         # Minimum speech duration to avoid random clicks/pops
+    
     try:
         mic = sr.Microphone()
-    except Exception:
+    except Exception as e:
+        state.status_line = f"Mic error: {e}"
         return
+
     with mic as src:
-        r.adjust_for_ambient_noise(src, duration=1)
+        state.status_line = "Calibrating mic..."
+        r.adjust_for_ambient_noise(src, duration=1.2)
+        state.status_line = "Mic ready"
+
     while True:
+        # Don't listen while PaiGen is speaking its own voice (avoids echo loop)
+        if state.speaking:
+            time.sleep(0.3)
+            continue
+
         with mic as src:
             state.is_listening = True
+            state.is_analyzing_voice = False
+            state.status_line = "Listening for your voice..."
             if state.emotion not in (Emotion.SLEEPING, Emotion.SPEAKING):
                 _set_emotion(Emotion.LISTENING)
             try:
-                audio = r.listen(src, timeout=5, phrase_time_limit=10)
+                audio = r.listen(src, timeout=8, phrase_time_limit=18)
             except sr.WaitTimeoutError:
-                state.is_listening = False; continue
+                state.is_listening = False
+                continue
             except Exception:
-                state.is_listening = False; time.sleep(1); continue
+                state.is_listening = False
+                time.sleep(0.5)
+                continue
+
         state.is_listening = False
+        state.is_analyzing_voice = True
+        state.status_line = "Analyzing voice & understanding..."
+        _set_emotion(Emotion.THINKING)
+
+        text = None
+        # Try primary recognizer (Google Web Speech) with fallback
         try:
-            text = r.recognize_google(audio)
+            text = r.recognize_google(audio, language="en-IN")
         except Exception:
+            try:
+                text = r.recognize_google(audio, language="en-US")
+            except Exception:
+                text = None
+
+        state.is_analyzing_voice = False
+
+        if not text or len(text.strip()) == 0:
+            state.status_line = "PaiGen online"
+            if state.emotion not in (Emotion.SLEEPING, Emotion.SPEAKING):
+                _set_emotion(Emotion.IDLE)
             continue
-        if not text: continue
+
+        clean_text = text.strip()
         was_sleeping = state.emotion == Emotion.SLEEPING
         state.last_interaction = time.time()
-        if was_sleeping and not any(w in text.lower() for w in ("paigen","hey","hello","wake","pai")):
-            continue
+        
+        # Wake check if asleep
         if was_sleeping:
-            _set_emotion(Emotion.SURPRISED)
-            speak("Hey! I'm here. What's up?")
-        ui_msg_q.put(f"🎤 {text}")
-        chat_q.put(text)
+            if any(w in clean_text.lower() for w in ("paigen", "hey", "hello", "wake", "pai")):
+                _set_emotion(Emotion.SURPRISED)
+                speak("Hey! I'm here. What's on your mind?")
+                continue
+            else:
+                continue
+
+        state.status_line = f"Understood: {clean_text[:35]}..."
+        ui_msg_q.put(f"🎤 {clean_text}")
+        chat_q.put(clean_text)
 
 # ─── Brain worker ─────────────────────────────────────────────────────────────
 SYS = (
@@ -800,10 +847,14 @@ class PaiGenApp:
                           text=f"seeing you:  {state.detected_user_emotion}",
                           fill=_dim_color(rgb, 0.42), font=("Consolas", 9))
 
-        # Mic indicator
+        # Mic indicator & voice analysis state
         if state.is_listening:
             c.create_oval(14, 14, 24, 24, fill="#ff4081", outline="")
-            c.create_text(28, 19, text="rec", fill="#ff4081",
+            c.create_text(28, 19, text="LISTENING...", fill="#ff4081",
+                          font=("Consolas", 8, "bold"), anchor="w")
+        elif state.is_analyzing_voice:
+            c.create_oval(14, 14, 24, 24, fill="#ffd740", outline="")
+            c.create_text(28, 19, text="ANALYZING VOICE...", fill="#ffd740",
                           font=("Consolas", 8, "bold"), anchor="w")
 
         # Motion bar
