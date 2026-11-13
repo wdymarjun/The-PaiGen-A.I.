@@ -80,3 +80,4 @@ class EmotionTracker:
             "smoothed_arousal": round(self.smoothed_arousal, 3),
             "recent_delta": round(self.compute_valence_delta(), 3),
         }
+

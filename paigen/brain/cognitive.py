@@ -14,6 +14,7 @@ from typing import AsyncGenerator, Dict, List, Optional
 import urllib.request
 import urllib.error
 from pydantic import BaseModel, Field
+from paigen.brain.knowledge.historical_advisor import HistoricalAdvisor
 
 logger = logging.getLogger("PaiGen.Brain.Cognitive")
 
@@ -78,6 +79,8 @@ CURRENT STATUS & LIVE TELEMETRY:
 
 ACTIVE BEHAVIORAL DIRECTIVE:
 {guidance}
+
+{HistoricalAdvisor.build_epistemic_system_prompt_addon()}
 
 STRICT RULE: Never hallucinate cloud connectivity. All operations, memory, and thoughts remain 100% on localhost."""
 
