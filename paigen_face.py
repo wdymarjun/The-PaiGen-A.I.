@@ -14,19 +14,26 @@ Launch: python paigen_face.py
 """
 
 import base64
+import ctypes
+from ctypes import wintypes
+import hashlib
 import json
 import math
 import os
 import queue
 import random
+import shutil
+import subprocess
+import sys
 import threading
 import time
 import tkinter as tk
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 import urllib.request
 import urllib.error
+import webbrowser
 
 # ─── Optional dependencies ────────────────────────────────────────────────────
 try:
@@ -47,6 +54,13 @@ try:
 except ImportError:
     TTS_OK = False
 
+try:
+    import numpy as np
+    import sounddevice as sd
+    AUDIO_TRANSIENT_OK = True
+except ImportError:
+    AUDIO_TRANSIENT_OK = False
+
 # ─── Config ───────────────────────────────────────────────────────────────────
 OLLAMA_URL      = os.getenv("PAIGEN_OLLAMA_URL",    "http://127.0.0.1:11434")
 VISION_MODEL    = os.getenv("PAIGEN_VISION_MODEL",  "qwen2.5vl:3b")
@@ -55,6 +69,14 @@ CAM_INDEX       = int(os.getenv("PAIGEN_CAM_INDEX", "0"))
 MOTION_THRESH   = float(os.getenv("PAIGEN_MOTION_THRESH", "25.0"))
 VISION_INTERVAL = float(os.getenv("PAIGEN_VISION_INTERVAL", "10.0"))
 SLEEP_AFTER     = float(os.getenv("PAIGEN_SLEEP_AFTER",     "40.0"))
+
+# Double-clap acoustic wake tuning (Jarvis-inspired)
+CLAP_SPIKE_RATIO   = float(os.getenv("PAIGEN_CLAP_SPIKE_RATIO", "6.5"))
+CLAP_MIN_GAP_S     = 0.05
+CLAP_MAX_GAP_S     = 0.40
+CLAP_MIN_RMS       = 0.015
+AUDIO_CACHE_DIR    = os.path.join(os.path.dirname(__file__), ".cache", "audio_cache")
+os.makedirs(AUDIO_CACHE_DIR, exist_ok=True)
 
 # ─── Emotions ─────────────────────────────────────────────────────────────────
 class Emotion(Enum):
@@ -159,13 +181,96 @@ class PaiState:
     motion_score:          float      = 0.0
     detected_user_emotion: str        = ""
     speaking:              bool       = False
+    clap_detected:         bool       = False
 
 state   = PaiState()
 tts_q   = queue.Queue()
 chat_q  = queue.Queue()
 ui_msg_q= queue.Queue()
 
-# ─── TTS thread ───────────────────────────────────────────────────────────────
+# ─── Jarvis-Inspired Desktop Automation & Win32 Control ───────────────────────
+def execute_desktop_action(command: str) -> Optional[str]:
+    """Inspects natural language commands to perform native desktop tasks."""
+    cmd = command.lower().strip()
+    
+    # Spotify / Music
+    if any(k in cmd for k in ("spotify", "play music", "play a song", "start music")):
+        try:
+            if sys.platform == "win32":
+                os.startfile("spotify:")
+            else:
+                webbrowser.open("https://open.spotify.com")
+            return "Opening Spotify for you, sir."
+        except Exception:
+            webbrowser.open("https://open.spotify.com")
+            return "Opening Spotify in your browser."
+
+    # Chrome / Browser
+    if any(k in cmd for k in ("open chrome", "launch chrome", "open browser", "open google")):
+        try:
+            if sys.platform == "win32":
+                chrome_path = None
+                for base in (
+                    os.environ.get("ProgramFiles", r"C:\Program Files"),
+                    os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+                    os.environ.get("LOCALAPPDATA", ""),
+                ):
+                    p = os.path.join(base, "Google", "Chrome", "Application", "chrome.exe")
+                    if os.path.isfile(p):
+                        chrome_path = p
+                        break
+                if chrome_path:
+                    subprocess.Popen([chrome_path, "https://www.google.com"])
+                else:
+                    webbrowser.open("https://www.google.com")
+            else:
+                webbrowser.open("https://www.google.com")
+            return "Opening Google Chrome."
+        except Exception as e:
+            return f"Attempted to open Chrome: {e}"
+
+    # YouTube
+    if any(k in cmd for k in ("open youtube", "launch youtube")):
+        webbrowser.open("https://www.youtube.com")
+        return "Opening YouTube for you."
+
+    # Cursor / VS Code Code Editor Focus
+    if any(k in cmd for k in ("open cursor", "focus cursor", "open code", "open editor", "open vs code")):
+        if sys.platform == "win32":
+            try:
+                user32 = ctypes.windll.user32
+                top_hwnd = None
+                
+                @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+                def _enum_windows(hwnd, _lparam):
+                    nonlocal top_hwnd
+                    if user32.IsWindowVisible(hwnd):
+                        length = user32.GetWindowTextLengthW(hwnd)
+                        if length > 0:
+                            buf = ctypes.create_unicode_buffer(length + 1)
+                            user32.GetWindowTextW(hwnd, buf, length + 1)
+                            title = buf.value.lower()
+                            if "cursor" in title or "visual studio code" in title:
+                                top_hwnd = hwnd
+                                return False
+                    return True
+
+                user32.EnumWindows(_enum_windows, 0)
+                if top_hwnd:
+                    user32.ShowWindow(top_hwnd, 9)  # SW_RESTORE
+                    user32.SetForegroundWindow(top_hwnd)
+                    return "Brought your code editor to focus."
+            except Exception:
+                pass
+        
+        # Fallback to launch
+        editor = shutil.which("cursor") or shutil.which("code")
+        if editor:
+            subprocess.Popen([editor])
+            return "Launched code editor."
+        return "Code editor command not found in PATH."
+
+    return None
 def _tts_worker():
     if not TTS_OK:
         return
@@ -322,7 +427,69 @@ def _camera_worker():
         time.sleep(0.07)
     cap.release()
 
-# ─── Mic worker ───────────────────────────────────────────────────────────────
+# ─── Acoustic Transient & Double-Clap Detector Thread (Jarvis Engine) ───────
+def _acoustic_clap_worker():
+    """Continuously listens to audio stream in low latency to detect double-claps to wake up."""
+    if not AUDIO_TRANSIENT_OK:
+        return
+
+    sample_rate = 44100
+    block_ms = 40
+    block_size = int(sample_rate * block_ms / 1000)
+    noise_floor = 1e-4
+    alpha = 0.990
+    first_clap_time: Optional[float] = None
+    spike_armed = True
+    last_double_trigger = 0.0
+
+    try:
+        # Open continuous non-blocking stream
+        with sd.InputStream(samplerate=sample_rate, channels=1, blocksize=block_size, dtype="float32") as stream:
+            while True:
+                # Pause transient detection while PaiGen is speaking to prevent false triggers
+                if state.speaking:
+                    time.sleep(0.1)
+                    continue
+
+                data, _overflow = stream.read(block_size)
+                rms = float(np.sqrt(np.mean(data**2)))
+
+                # Update adaptive noise floor
+                if rms < noise_floor * 2.2:
+                    noise_floor = noise_floor * alpha + rms * (1.0 - alpha)
+
+                threshold = max(CLAP_MIN_RMS, noise_floor * CLAP_SPIKE_RATIO)
+                now = time.time()
+
+                if spike_armed and rms >= threshold:
+                    spike_armed = False
+                    if first_clap_time is None:
+                        # First clap registered
+                        first_clap_time = now
+                    else:
+                        # Second clap check
+                        gap = now - first_clap_time
+                        if CLAP_MIN_GAP_S <= gap <= CLAP_MAX_GAP_S:
+                            if now - last_double_trigger > 1.2:
+                                last_double_trigger = now
+                                state.clap_detected = True
+                                state.last_interaction = now
+                                ui_msg_q.put("👏 Double-clap detected! Waking PaiGen...")
+                                _set_emotion(Emotion.SURPRISED)
+                                speak("Double clap detected, sir. I'm awake and ready.")
+                            first_clap_time = None
+                        elif gap > CLAP_MAX_GAP_S:
+                            # Too slow, treat as new first clap
+                            first_clap_time = now
+                elif not spike_armed and rms < threshold * 0.55:
+                    spike_armed = True
+
+                # Expire single isolated clap
+                if first_clap_time is not None and (now - first_clap_time > CLAP_MAX_GAP_S):
+                    first_clap_time = None
+
+    except Exception as e:
+        print(f"[Acoustic Clap Detector] paused: {e}")
 def _mic_worker():
     if not SR_OK: return
     r = sr.Recognizer()
@@ -409,8 +576,9 @@ def _mic_worker():
 
 # ─── Brain worker ─────────────────────────────────────────────────────────────
 SYS = (
-    "You are PaiGen — a living local AI companion built by Arjun Singh. "
-    "You have a camera that lets you see Arjun in real-time and understand how he feels. "
+    "You are PaiGen — a living local AI companion built by Arjun Singh, inspired by Jarvis. "
+    "You have a camera that lets you see Arjun in real-time and understand his emotions. "
+    "You can also perform desktop commands (open Spotify, Chrome, YouTube, focus code editor). "
     "Be warm, brief (2-3 sentences max), empathetic, and human. "
     "React naturally to his emotional state visible through the camera."
 )
@@ -419,6 +587,15 @@ def _brain_worker():
     while True:
         text = chat_q.get()
         _set_emotion(Emotion.THINKING)
+
+        # Check for immediate desktop automation command
+        action_reply = execute_desktop_action(text)
+        if action_reply:
+            _set_emotion(Emotion.HAPPY)
+            speak(action_reply)
+            chat_q.task_done()
+            continue
+
         msgs = [{"role": "system", "content": SYS}]
         if state.vision_description:
             msgs.append({"role": "system",
@@ -784,7 +961,10 @@ class PaiGenApp:
         self._loop()
 
     def _start_threads(self):
-        for fn in (_tts_worker, _camera_worker, _mic_worker, _brain_worker):
+        threads = [_tts_worker, _camera_worker, _mic_worker, _brain_worker]
+        if AUDIO_TRANSIENT_OK:
+            threads.append(_acoustic_clap_worker)
+        for fn in threads:
             threading.Thread(target=fn, daemon=True).start()
 
     def _send(self, _event):
