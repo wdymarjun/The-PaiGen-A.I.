@@ -15,6 +15,7 @@ import urllib.request
 import urllib.error
 from pydantic import BaseModel, Field
 from paigen.brain.knowledge.historical_advisor import HistoricalAdvisor
+from paigen.brain.interactive_attunement import HumanNatureAttuner
 
 logger = logging.getLogger("PaiGen.Brain.Cognitive")
 
@@ -79,6 +80,13 @@ CURRENT STATUS & LIVE TELEMETRY:
 
 ACTIVE BEHAVIORAL DIRECTIVE:
 {guidance}
+
+{HumanNatureAttuner.format_interactive_attunement_prompt(
+    user_name=ctx.user_name,
+    observed_valence=ctx.valence,
+    fatigue_score=ctx.fatigue_score,
+    trust_level=ctx.trust_score
+)}
 
 {HistoricalAdvisor.build_epistemic_system_prompt_addon()}
 

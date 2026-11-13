@@ -189,3 +189,4 @@ class EmotionVisualSearcher:
 
         with open(self.history_file, "w", encoding="utf-8") as f:
             json.dump(combined, f, indent=2, ensure_ascii=False)
+
