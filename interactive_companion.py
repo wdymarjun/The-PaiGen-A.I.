@@ -1,45 +1,62 @@
 """
-PaiGen AI: Live Interactive Human Nature Companion CLI
+PaiGen AI: Live Interactive Text Companion CLI
 Architect: Arjun Singh
 
-Interactive terminal session with PaiGen AI.
-Simulates real-time telemetry (valence, fatigue, time of day, trust score),
-showcasing dynamic dual-persona adaptation and organic human nature attunement.
+Dependable, privacy-first local text assistant.
+Features:
+- Persistent SQLite WAL chat history with user controls (/history, /clear).
+- Grounded Cited Knowledge Retrieval (/cite <topic>).
+- Transparent state estimation with explicit user manual overrides (/override <key> <val>).
+- 100% offline localhost execution.
 """
 
 import sys
 from datetime import datetime
+from typing import Optional
+
 from paigen.brain.cognitive import CognitiveBrain, TelemetryContext
 from paigen.brain.interactive_attunement import HumanNatureAttuner
+from paigen.brain.knowledge.retriever import LocalKnowledgeRetriever
+from paigen.database.sqlite_store import SQLiteWALStore
 
 
-def print_banner():
+def print_banner(db: SQLiteWALStore):
     phase = HumanNatureAttuner.get_current_circadian_phase()
+    overrides = db.list_overrides()
+
     print("=" * 75)
-    print("  PAIGEN A.I. — HUMAN NATURE INTERACTIVE COMPANION")
+    print("  PAIGEN A.I. — DEPENDABLE LOCAL ASSISTANT")
     print("  Created & Architected by Arjun Singh | 100% Local & Privacy-First")
-    print(f"  Local Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"  Circadian Phase: {phase.phase_name}")
-    print(f"  Biological State: {phase.biological_state}")
+    print(f"  Local Clock: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"  Inferred Circadian Phase: {phase.phase_name} (Confidence: 65% - Estimate)")
+    if overrides:
+        print(f"  Active User Overrides: {overrides}")
     print("=" * 75)
-    print("Special Commands:")
-    print("  /tired   -> Simulate physical fatigue & high adenosine")
-    print("  /stress  -> Simulate compiler error & negative valence")
-    print("  /focus   -> Simulate deep cognitive flow state")
-    print("  /eureka  -> Simulate architectural breakthrough & high dopamine")
-    print("  /reset   -> Return to balanced baseline")
-    print("  /exit    -> End session")
+    print("Commands:")
+    print("  /history             -> View persistent message history from SQLite")
+    print("  /clear               -> Securely clear current chat session history")
+    print("  /cite <question>     -> Retrieve verified sources & citations")
+    print("  /override <key> <v>  -> Set manual override (e.g. /override mood Focused)")
+    print("  /reset               -> Reset state to balanced baseline")
+    print("  /exit                -> Exit session")
     print("-" * 75)
 
 
 def run_interactive_session():
-    print_banner()
-    brain = CognitiveBrain()
+    db = SQLiteWALStore()
+    retriever = LocalKnowledgeRetriever()
+    brain = CognitiveBrain(db_store=db, retriever=retriever)
+
+    print_banner(db)
+    session_id = "default_session"
+    db.get_or_create_session(session_id, title="Primary CLI Session")
+
     ctx = TelemetryContext(
         user_name="Arjun",
-        valence=0.2,
-        arousal=0.5,
-        fatigue_score=0.1,
+        session_id=session_id,
+        inferred_valence=0.2,
+        inferred_arousal=0.5,
+        inferred_fatigue=0.1,
         is_deep_focus=False,
         trust_score=15.0,
         primary_language="bilingual"
@@ -47,48 +64,59 @@ def run_interactive_session():
 
     while True:
         try:
-            user_msg = input(f"\n[Arjun (V:{ctx.valence:+.1f}, F:{ctx.fatigue_score:.1f})] > ").strip()
+            prompt_header = f"\n[Arjun (V:{ctx.inferred_valence:+.1f}, F:{ctx.inferred_fatigue:.1f})] > "
+            user_msg = input(prompt_header).strip()
             if not user_msg:
                 continue
 
+            # Command Handling
             if user_msg.lower() == "/exit":
-                print("\n[*] PaiGen: Alvida Arjun, take care of yourself. Systems in standby.")
+                print("\n[*] PaiGen: Alvida Arjun. Session safely persisted to local SQLite.")
                 break
-            elif user_msg.lower() == "/tired":
-                ctx.fatigue_score = 0.85
-                ctx.valence = -0.3
-                ctx.arousal = 0.2
-                ctx.is_deep_focus = False
-                print("[!] [Simulated Telemetry]: High fatigue detected (Eyelid droop, adenosine saturation).")
+
+            elif user_msg.lower() == "/clear":
+                deleted = db.clear_session_history(session_id)
+                print(f"[*] Cleared {deleted} messages from current session history.")
                 continue
-            elif user_msg.lower() == "/stress":
-                ctx.fatigue_score = 0.5
-                ctx.valence = -0.7
-                ctx.arousal = 0.85
-                ctx.is_deep_focus = False
-                print("[!] [Simulated Telemetry]: High stress / frustration detected (AU4 brow furrow, AU24 lip press).")
+
+            elif user_msg.lower() == "/history":
+                history = db.get_session_history(session_id)
+                print(f"\n--- Persistent Session History ({len(history)} messages) ---")
+                for msg in history:
+                    print(f"  [{msg.role.upper()}]: {msg.content[:120]}...")
+                print("---------------------------------------------------------")
                 continue
-            elif user_msg.lower() == "/focus":
-                ctx.fatigue_score = 0.1
-                ctx.valence = 0.5
-                ctx.arousal = 0.6
-                ctx.is_deep_focus = True
-                print("[!] [Simulated Telemetry]: Deep cognitive flow state locked in (AU4, steady gaze).")
+
+            elif user_msg.lower().startswith("/cite"):
+                query = user_msg[5:].strip()
+                if not query:
+                    print("[!] Usage: /cite <topic or question>")
+                    continue
+                results = retriever.retrieve(query, top_k=2)
+                print(f"\n--- Verified Local Citations for: '{query}' ---")
+                for r in results:
+                    print(f"  {r.document.citation_tag} (Score: {r.score})")
+                    print(f"  Title: {r.document.title}")
+                    print(f"  Evidence: {r.snippet}\n")
+                print("-------------------------------------------------")
                 continue
-            elif user_msg.lower() == "/eureka":
-                ctx.fatigue_score = 0.05
-                ctx.valence = 0.95
-                ctx.arousal = 0.90
-                ctx.is_deep_focus = False
-                ctx.trust_score = min(100.0, ctx.trust_score + 5.0)
-                print("[!] [Simulated Telemetry]: Eureka epiphany detected (AU1+AU2 brow rise, AU6 Duchenne smile).")
+
+            elif user_msg.lower().startswith("/override"):
+                parts = user_msg.split(maxsplit=2)
+                if len(parts) < 3:
+                    print("[!] Usage: /override <key> <value> (e.g., /override circadian_phase Midday)")
+                    continue
+                key, val = parts[1], parts[2]
+                db.set_override(key, val)
+                print(f"[*] Override applied: {key} = '{val}' (will override heuristics)")
                 continue
+
             elif user_msg.lower() == "/reset":
-                ctx.fatigue_score = 0.1
-                ctx.valence = 0.2
-                ctx.arousal = 0.5
+                ctx.inferred_fatigue = 0.1
+                ctx.inferred_valence = 0.2
+                ctx.inferred_arousal = 0.5
                 ctx.is_deep_focus = False
-                print("[*] [Simulated Telemetry]: Reset to balanced baseline.")
+                print("[*] Telemetry reset to balanced baseline.")
                 continue
 
             # Query the brain

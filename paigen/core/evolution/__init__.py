@@ -1,5 +1,5 @@
 """
-PaiGen AI Core Evolution & Self-Rewriting Package
+PaiGen AI Core Evolution & Safe Patch Proposal Package
 """
 from paigen.core.evolution.safety_harness import SafetyHarness
 from paigen.core.evolution.decision_engine import (
@@ -7,13 +7,12 @@ from paigen.core.evolution.decision_engine import (
     EvolutionDirective,
     EvolutionTriggerReason,
 )
-from paigen.core.evolution.meta_mutator import MetaMutator
+from paigen.core.evolution.meta_mutator import PatchProposalEngine
 
 __all__ = [
     "SafetyHarness",
     "EvolutionaryDecisionEngine",
     "EvolutionDirective",
     "EvolutionTriggerReason",
-    "MetaMutator",
+    "PatchProposalEngine",
 ]
-

@@ -1,43 +1,50 @@
 """
-PaiGen AI: Local QLoRA / LoRA Fine-Tuning Script
+PaiGen AI: Standalone Local QLoRA Fine-Tuning Script
 Architect: Arjun Singh
 
-Fine-tunes a local LLM (e.g. Qwen2.5-3B-Instruct or Llama-3.2-3B-Instruct)
-on consumer GPU hardware (NVIDIA RTX 5050 8GB VRAM) using 4-bit quantization,
-LoRA adapters, and the compiled PaiGen bilingual curriculum dataset.
-Strictly offline and local execution.
+Runs strictly on local hardware (e.g., NVIDIA RTX 5050 Laptop GPU, 8GB VRAM).
+Fine-tunes a local base model on compiled curriculum datasets using 4-bit NF4
+quantization and PEFT LoRA adapters.
 """
 
+import argparse
 import os
 from pathlib import Path
 
 
-FINE_TUNE_SCRIPT = '''# Local Fine-Tuning Script for PaiGen AI Brain
-# Runs directly on local GPU with PyTorch, Transformers, and PEFT
+def run_training(
+    base_model_id: str = "Qwen/Qwen2.5-3B-Instruct",
+    dataset_path: str = "./training/paigen_chatml_dataset.jsonl",
+    output_dir: str = "./output/paigen-brain-lora",
+    max_steps: int = 150,
+):
+    """Executes local parameter-efficient fine-tuning if PyTorch/CUDA is available."""
+    try:
+        import torch
+        from datasets import load_dataset
+        from transformers import (
+            AutoModelForCausalLM,
+            AutoTokenizer,
+            BitsAndBytesConfig,
+            TrainingArguments,
+        )
+        from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+        from trl import SFTTrainer
+    except ImportError as e:
+        print(f"[!] PyTorch/Transformers/PEFT not installed in current environment: {e}")
+        print("[!] Install dependencies with: pip install torch transformers datasets peft trl bitsandbytes")
+        return False
 
-import torch
-from datasets import load_dataset
-from transformers import (
-    AutoModelForCausalLM,
-    AutoTokenizer,
-    BitsAndBytesConfig,
-    TrainingArguments,
-)
-from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
-from trl import SFTTrainer
+    if not torch.cuda.is_available():
+        print("[!] CUDA GPU is not available. Local fine-tuning on CPU is not recommended for LLMs.")
+        return False
 
-# Base model recommendations for 8GB VRAM:
-# "Qwen/Qwen2.5-3B-Instruct" (Exceptional Hindi/Devanagari + English reasoning)
-# "meta-llama/Llama-3.2-3B-Instruct"
-MODEL_ID = os.getenv("BASE_MODEL_ID", "Qwen/Qwen2.5-3B-Instruct")
-OUTPUT_DIR = "./output/paigen-brain-lora"
-DATASET_PATH = "./training/paigen_chatml_dataset.jsonl"
+    gpu_name = torch.cuda.get_device_name(0)
+    vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+    print(f"[*] Initializing PaiGen Brain Fine-Tuning on: {base_model_id}")
+    print(f"[*] Target GPU: {gpu_name} ({vram_gb:.2f} GB VRAM)")
 
-def train():
-    print(f"[*] Initializing PaiGen Brain Fine-Tuning on: {MODEL_ID}")
-    print(f"[*] GPU Detected: {torch.cuda.get_device_name(0)} ({torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GB)")
-
-    # 4-bit Quantization Configuration for 8GB VRAM efficiency
+    # 4-bit Quantization Configuration
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_quant_type="nf4",
@@ -45,19 +52,18 @@ def train():
         bnb_4bit_use_double_quant=True,
     )
 
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(base_model_id, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
     model = AutoModelForCausalLM.from_pretrained(
-        MODEL_ID,
+        base_model_id,
         quantization_config=bnb_config,
         device_map="auto",
         trust_remote_code=True
     )
     model = prepare_model_for_kbit_training(model)
 
-    # LoRA Target Modules
     lora_config = LoraConfig(
         r=16,
         lora_alpha=32,
@@ -70,21 +76,20 @@ def train():
     model = get_peft_model(model, lora_config)
     model.print_trainable_parameters()
 
-    # Load local curriculum dataset
-    dataset = load_dataset("json", data_files=DATASET_PATH, split="train")
+    dataset = load_dataset("json", data_files=dataset_path, split="train")
 
     training_args = TrainingArguments(
-        output_dir=OUTPUT_DIR,
+        output_dir=output_dir,
         per_device_train_batch_size=2,
         gradient_accumulation_steps=4,
         warmup_steps=10,
-        max_steps=150,
+        max_steps=max_steps,
         learning_rate=2e-4,
         fp16=True,
         logging_steps=10,
         save_strategy="steps",
         save_steps=50,
-        report_to="none",  # Invariant: Zero cloud telemetry
+        report_to="none",  # Strict Invariant: Zero cloud telemetry
     )
 
     trainer = SFTTrainer(
@@ -100,16 +105,23 @@ def train():
     print("[*] Starting Local Training...")
     trainer.train()
 
-    print(f"[*] Training Complete! Saving adapter to: {OUTPUT_DIR}")
-    model.save_pretrained(OUTPUT_DIR)
-    tokenizer.save_pretrained(OUTPUT_DIR)
+    print(f"[*] Training Complete! Saving adapter to: {output_dir}")
+    model.save_pretrained(output_dir)
+    tokenizer.save_pretrained(output_dir)
+    return True
+
 
 if __name__ == "__main__":
-    train()
-'''
+    parser = argparse.ArgumentParser(description="PaiGen Local LoRA Fine-Tuner")
+    parser.add_argument("--model", default="Qwen/Qwen2.5-3B-Instruct", help="Base HuggingFace Model ID")
+    parser.add_argument("--dataset", default="./training/paigen_chatml_dataset.jsonl", help="Dataset path")
+    parser.add_argument("--output", default="./output/paigen-brain-lora", help="Output directory")
+    parser.add_argument("--steps", type=int, default=150, help="Training steps")
+    args = parser.parse_args()
 
-
-def generate_training_runner(target_path: Path):
-    with open(target_path, "w", encoding="utf-8") as f:
-        f.write(FINE_TUNE_SCRIPT)
-
+    run_training(
+        base_model_id=args.model,
+        dataset_path=args.dataset,
+        output_dir=args.output,
+        max_steps=args.steps
+    )

@@ -1,76 +1,64 @@
 """
-PaiGen AI: Self-Evolution & Code Self-Rewriting Demonstration
+PaiGen AI: Safe Patch Proposal Demonstration (Safety-First Evolution)
 Architect: Arjun Singh
 
-Simulates PaiGen tracking user emotional valence, detecting that its current
-intervention heuristics caused agitation, autonomously deciding to evolve its code,
-validating AST syntax with SafetyHarness, and modifying paigen/core/homeostasis.py
-live with hot-reload in memory.
+Demonstrates PaiGen detecting an optimization opportunity and generating a
+reviewable unified diff patch in `data/proposed_patches/` for developer review,
+WITHOUT mutating or overwriting the active source code tree.
 """
 
 from pathlib import Path
-from datetime import datetime
-
+from paigen.core.evolution.decision_engine import EvolutionaryDecisionEngine, EvolutionTriggerReason
+from paigen.core.evolution.meta_mutator import PatchProposalEngine
 from paigen.core.emotion_tracker import EmotionTracker, EmotionFrame
-from paigen.core.homeostasis import HomeostaticDrives, decide_intervention_policy
-from paigen.core.evolution.decision_engine import EvolutionaryDecisionEngine
-from paigen.core.evolution.meta_mutator import MetaMutator
+from paigen.core.homeostasis import HomeostaticDrives
 
 
-def run_evolution_simulation():
+def run_safe_evolution_demo():
     repo_root = Path(__file__).parent.resolve()
     print("=" * 75)
-    print("  PAIGEN A.I. AUTONOMOUS SELF-EVOLUTION & CODE REWRITING TEST")
+    print("  PAIGEN A.I. SAFE PATCH PROPOSAL & ADAPTATION DEMO")
     print(f"  Architect: Arjun Singh | Repo: {repo_root.name}")
     print("=" * 75)
 
-    # 1. Initialize Subsystems
     tracker = EmotionTracker()
     drives = HomeostaticDrives()
     decision_engine = EvolutionaryDecisionEngine(tracker, drives)
-    mutator = MetaMutator(repo_root)
+    proposer = PatchProposalEngine(repo_root)
 
-    # 2. Check Baseline Code Behavior
-    print("\n[Step 1] Baseline Decision from 'decide_intervention_policy':")
-    action_before = decide_intervention_policy(
-        smoothed_valence=-0.55, arousal=0.7, fatigue=0.2, intrusiveness=0.6
+    print("\n[Step 1] Tracking Simulated Feedback...")
+    directive = decision_engine.record_intervention_outcome(post_intervention_valence_delta=-0.45)
+    print(f"  -> Should adapt? {directive.should_mutate}")
+    print(f"  -> Reason: {directive.reason.value if directive.reason else 'None'}")
+    print(f"  -> Recommendation: {directive.recommended_adjustment}")
+
+    print("\n[Step 2] Generating Non-Destructive Reviewable Patch...")
+    sample_proposed_code = '''# Proposed update for developer review
+def decide_intervention_policy(smoothed_valence, arousal, fatigue, intrusiveness):
+    if fatigue > 0.8:
+        return "TRIGGER_GENTLE_REST_NUDGE"
+    return "MAINTAIN_SUPPORTIVE_SILENCE"
+'''
+    success, message, patch_path = proposer.generate_reviewable_patch(
+        target_relative_path="paigen/core/homeostasis.py",
+        proposed_code=sample_proposed_code,
+        rationale="Raise silence threshold in response to negative valence feedback"
     )
-    print(f"  -> At valence -0.55 & intrusiveness 0.6: Action = '{action_before}'")
 
-    # 3. Simulate Emotion Tracking: User becomes agitated after two consecutive interventions
-    print("\n[Step 2] User Interaction & Emotion Tracking...")
-    print("  Intervention 1 executed. Observing user micro-expressions...")
-    tracker.ingest_frame(EmotionFrame(primary_emotion="angry", valence=-0.5, arousal=0.8))
-    directive_1 = decision_engine.record_intervention_outcome(post_intervention_valence_delta=-0.35)
-    print(f"  -> Delta v: -0.35 | Should Mutate? {directive_1.should_mutate}")
-
-    print("  Intervention 2 executed. User frowns again (Negative Valence Spike)...")
-    tracker.ingest_frame(EmotionFrame(primary_emotion="sad", valence=-0.65, arousal=0.7))
-    directive_2 = decision_engine.record_intervention_outcome(post_intervention_valence_delta=-0.40)
-    print(f"  -> Delta v: -0.40 | Should Mutate? {directive_2.should_mutate}")
-    print(f"  -> Decision Engine Reason: {directive_2.reason.value}")
-    print(f"  -> Recommendation: {directive_2.recommended_adjustment}")
-
-    # 4. Autonomous Code Rewriting Execution
-    print("\n[Step 3] PaiGen Initiates Self-Rewriting of Core Logic...")
-    success, message = mutator.apply_directive(directive_2)
-    print(f"  -> Result: {message}")
-    print(f"  -> Status: {'SUCCESS' if success else 'FAILED'}")
-
-    # 5. Verify In-Memory Dynamic Execution of the Evolved Code
-    from paigen.core.homeostasis import decide_intervention_policy as evolved_policy
-    action_after = evolved_policy(
-        smoothed_valence=-0.55, arousal=0.7, fatigue=0.2, intrusiveness=0.6
-    )
-    print("\n[Step 4] Evolved Behavior Verification:")
-    print(f"  -> At same state (valence -0.55): Old Action = '{action_before}' | New Evolved Action = '{action_after}'")
+    print(f"  -> Success: {success}")
+    print(f"  -> Message: {message}")
+    if patch_path and patch_path.exists():
+        print(f"  -> Patch Location: {patch_path.relative_to(repo_root)}")
+        print("\n[Step 3] Preview of Proposed Patch (Unified Diff):")
+        with open(patch_path, "r", encoding="utf-8") as f:
+            for line in f.readlines()[:12]:
+                print(f"     {line.strip()}")
 
     print("\n" + "=" * 75)
-    print("  PaiGen successfully tracked user emotions, deduced heuristic failure,")
-    print("  and rewrote its own core source code with full AST safety validation!")
+    print("  Source tree remains 100% UNTOUCHED and intact.")
+    print("  Developer has full review and approval control over proposed evolution.")
     print("=" * 75)
 
 
 if __name__ == "__main__":
-    run_evolution_simulation()
-
+    run_safe_evolution_demo()
