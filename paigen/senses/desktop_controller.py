@@ -7,11 +7,12 @@ ChatGPT / Operator Style Computer-Using Agent:
 2. Cognitive Visual Grounding: Qwen2.5-VL parses GUI elements, window titles, coordinates, and context.
 3. Autonomous Multi-Step Execution:
    - Win32 foreground activation & cursor targeting
-   - Web Navigation (Prime Video, JioCinema, Netflix, YouTube, Google)
+   - Web Navigation (Prime Video, JioCinema, Netflix, YouTube, Spotify, Google)
    - Browser Tab Management (New tab, close tab, switch tab, reopen tab, refresh)
    - Screen Navigation (Smooth scrolling up/down, page up/down, zoom in/out/reset)
    - Hands-Free Messaging (Autonomous WhatsApp contact search, drafting, typing & sending)
-   - Desktop & Window Controls (App launching, Alt-Tab, minimize all, volume)
+   - Desktop & Window Controls (App switching, Alt-Tab, minimize, maximize, snap, volume)
+   - Visual Grounding & Screen Element Clicking (Qwen2.5-VL coordinate targeting)
    - Step-by-Step Vision-Action Loop for arbitrary user instructions
 4. Output: Real-time execution with verbal & visual status feedback.
 """
@@ -31,7 +32,7 @@ import time
 import urllib.parse
 import urllib.request
 import webbrowser
-from typing import Dict, Any, Optional, Tuple, List
+from typing import Callable, Dict, Any, Optional, Tuple, List
 
 try:
     from PIL import Image, ImageGrab
@@ -109,6 +110,7 @@ class DesktopController:
         "disney hotstar": "https://www.hotstar.com/in/explore?search_query={q}",
         "youtube": "https://www.youtube.com/results?search_query={q}",
         "yt": "https://www.youtube.com/results?search_query={q}",
+        "spotify": "https://open.spotify.com/search/{q}",
         "zee5": "https://www.zee5.com/search?q={q}",
         "sonyliv": "https://www.sonyliv.com/search/{q}",
     }
@@ -156,7 +158,6 @@ class DesktopController:
                     if any(k in t_low for k in keywords):
                         rect = wintypes.RECT()
                         user32.GetWindowRect(hwnd, ctypes.byref(rect))
-                        # Non-empty dimensions
                         if (rect.right - rect.left > 80) and (rect.bottom - rect.top > 80):
                             matches.append((hwnd, title, (rect.left, rect.top, rect.right, rect.bottom)))
             return True
@@ -184,11 +185,9 @@ class DesktopController:
         try:
             cls._attach_input_desktop()
             user32 = ctypes.windll.user32
-            # 1. SW_RESTORE (9) un-minimizes window if minimized
-            user32.ShowWindow(hwnd, 9)
+            user32.ShowWindow(hwnd, 9)  # SW_RESTORE
             time.sleep(0.06)
 
-            # 2. Attach thread input to guarantee SetForegroundWindow succeeds
             fore_hwnd = user32.GetForegroundWindow()
             fore_thread = user32.GetWindowThreadProcessId(fore_hwnd, None)
             cur_thread = ctypes.windll.kernel32.GetCurrentThreadId()
@@ -204,7 +203,6 @@ class DesktopController:
 
             time.sleep(0.12)
 
-            # 3. Position mouse cursor in window center so scroll / clicks target the app
             if center_mouse and PYAUTOGUI_OK:
                 if not rect:
                     r = wintypes.RECT()
@@ -230,7 +228,6 @@ class DesktopController:
             cls._focus_target_window(hwnd, center_mouse=True, rect=rect)
             return True
         else:
-            # If no browser is running, launch one
             cls.launch_target("chrome")
             time.sleep(1.2)
             new_browser = cls._find_window_by_keywords(["brave", "chrome", "edge", "firefox", "opera"])
@@ -238,6 +235,39 @@ class DesktopController:
                 cls._focus_target_window(new_browser[0], center_mouse=True, rect=new_browser[2])
                 return True
         return False
+
+    @classmethod
+    def _switch_to_app(cls, app_name: str) -> bool:
+        """Finds any running window matching app_name and brings it to the foreground, or launches it."""
+        app_name_clean = app_name.lower().strip()
+        kw_map = {
+            "discord": ["discord"],
+            "brave": ["brave"],
+            "chrome": ["chrome", "google chrome"],
+            "edge": ["edge", "microsoft edge"],
+            "cursor": ["cursor"],
+            "code": ["visual studio code", "vscode", "code"],
+            "vs code": ["visual studio code", "vscode", "code"],
+            "chatgpt": ["chatgpt"],
+            "claude": ["claude"],
+            "gemini": ["gemini"],
+            "spotify": ["spotify"],
+            "whatsapp": ["whatsapp"],
+            "powershell": ["powershell", "windows powershell"],
+            "terminal": ["terminal", "powershell", "cmd"],
+            "cmd": ["cmd", "command prompt"],
+            "task manager": ["task manager", "taskmgr"],
+            "notepad": ["notepad"],
+            "files": ["file explorer", "explorer"],
+            "explorer": ["file explorer", "explorer"],
+            "settings": ["settings"],
+        }
+        keywords = kw_map.get(app_name_clean, [app_name_clean])
+        win_info = cls._find_window_by_keywords(keywords)
+        if win_info:
+            cls._focus_target_window(win_info[0], center_mouse=True, rect=win_info[2])
+            return True
+        return cls.launch_target(app_name_clean)
 
     # ─── Screen Capture ───────────────────────────────────────────────────────
 
@@ -253,7 +283,7 @@ class DesktopController:
             buffered = io.BytesIO()
             screenshot.save(buffered, format="JPEG", quality=80)
             return base64.b64encode(buffered.getvalue()).decode("ascii")
-        except Exception as e1:
+        except Exception:
             if PYAUTOGUI_OK:
                 try:
                     screenshot = pyautogui.screenshot()
@@ -265,7 +295,7 @@ class DesktopController:
                     print(f"[DesktopController] Screen capture fallback error: {e2}", file=sys.stderr)
             return None
 
-    # ─── Cognitive Vision Analysis ───────────────────────────────────────────
+    # ─── Cognitive Vision Analysis & Grounding ────────────────────────────────
 
     @classmethod
     def analyze_live_screen(cls, question: str = "What is currently displayed on my screen?") -> str:
@@ -303,6 +333,68 @@ class DesktopController:
             return f"Screen vision analysis error: {e}"
 
     @classmethod
+    def visual_click(cls, target_description: str, click_type: str = "single") -> Optional[str]:
+        """Uses Qwen2.5-VL to find coordinates of a described visual element on screen and clicks it."""
+        if not PYAUTOGUI_OK or not SCREEN_CAPTURE_OK:
+            return None
+        cls._attach_input_desktop()
+        try:
+            im = ImageGrab.grab()
+            screen_w, screen_h = im.size
+            im_small = im.copy()
+            im_small.thumbnail((1280, 1280))
+            buf = io.BytesIO()
+            im_small.save(buf, format="JPEG", quality=80)
+            b64_img = base64.b64encode(buf.getvalue()).decode("ascii")
+
+            prompt = (
+                f"The screen resolution is {screen_w}x{screen_h}. "
+                f"Locate the center pixel coordinates (X, Y) for: '{target_description}'. "
+                "Respond with ONLY two numbers separated by a comma (e.g. 500, 300), nothing else."
+            )
+
+            payload = {
+                "model": VISION_MODEL,
+                "stream": False,
+                "messages": [{"role": "user", "content": prompt, "images": [b64_img]}],
+                "options": {"temperature": 0.1}
+            }
+
+            req = urllib.request.Request(
+                f"{OLLAMA_URL}/api/chat",
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
+
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                res = json.loads(resp.read().decode("utf-8"))
+                raw_coords = res.get("message", {}).get("content", "").strip()
+
+            coords_match = re.search(r"(\d{1,4})\s*,\s*(\d{1,4})", raw_coords)
+            if coords_match:
+                x = int(coords_match.group(1))
+                y = int(coords_match.group(2))
+                x = max(10, min(x, screen_w - 10))
+                y = max(10, min(y, screen_h - 10))
+
+                # Smoothly move mouse and click
+                pyautogui.moveTo(x, y, duration=0.25)
+                time.sleep(0.05)
+                if click_type == "double":
+                    pyautogui.doubleClick()
+                    return f"Double-clicked on '{target_description}' at ({x}, {y})."
+                elif click_type == "right":
+                    pyautogui.rightClick()
+                    return f"Right-clicked on '{target_description}' at ({x}, {y})."
+                else:
+                    pyautogui.click()
+                    return f"Clicked on '{target_description}' at ({x}, {y})."
+        except Exception as e:
+            print(f"[DesktopController] Visual click error: {e}", file=sys.stderr)
+        return None
+
+    @classmethod
     def draft_friend_message(cls, recipient: str, concept: str) -> str:
         """Uses Ollama to think, structure, and draft a natural, human-like message to a friend."""
         prompt = (
@@ -334,7 +426,12 @@ class DesktopController:
     # ─── Autonomous WhatsApp Execution ───────────────────────────────────────
 
     @classmethod
-    def autonomous_whatsapp_send(cls, contact_name: str, message_text: str):
+    def autonomous_whatsapp_send(
+        cls, 
+        contact_name: str, 
+        message_text: str, 
+        status_callback: Optional[Callable[[str], None]] = None
+    ):
         """
         Autonomous Operator:
         1. Brings native WhatsApp Desktop window to foreground (or launches it)
@@ -345,13 +442,15 @@ class DesktopController:
         def _worker():
             try:
                 cls._attach_input_desktop()
+                if status_callback:
+                    status_callback(f"💬 [WhatsApp]: Finding {contact_name} on WhatsApp...")
+
                 # 1. Look for running WhatsApp Desktop
                 wa_info = cls._find_window_by_keywords(["whatsapp"])
                 if wa_info:
                     cls._focus_target_window(wa_info[0], center_mouse=True, rect=wa_info[2])
                     time.sleep(0.6)
                 else:
-                    # Launch native WhatsApp URI
                     try:
                         os.startfile("whatsapp:")
                         time.sleep(2.0)
@@ -364,7 +463,6 @@ class DesktopController:
 
                 # If WhatsApp window is focused
                 if wa_info and PYAUTOGUI_OK:
-                    # Focus search in WhatsApp Desktop
                     pyautogui.hotkey("ctrl", "f")
                     time.sleep(0.4)
                     import pyperclip
@@ -373,16 +471,23 @@ class DesktopController:
                     time.sleep(0.9)
                     pyautogui.press("enter")
                     time.sleep(0.6)
-                    # Paste drafted message into chat input
+
+                    if status_callback:
+                        status_callback(f"✍️ [WhatsApp]: Typing drafted message to {contact_name}...")
+
                     pyperclip.copy(message_text)
                     pyautogui.hotkey("ctrl", "v")
                     time.sleep(0.3)
-                    # Send message
                     pyautogui.press("enter")
+
+                    if status_callback:
+                        status_callback(f"🚀 [WhatsApp]: Message sent to {contact_name}!")
                     print(f"[DesktopController] Message sent to {contact_name} via WhatsApp Desktop.")
                     return
 
                 # Fallback to WhatsApp Web if native desktop window was not reachable
+                if status_callback:
+                    status_callback(f"🌐 [WhatsApp Web]: Opening WhatsApp Web for {contact_name}...")
                 encoded_msg = urllib.parse.quote(message_text)
                 whatsapp_url = f"https://web.whatsapp.com/send?text={encoded_msg}"
                 webbrowser.open(whatsapp_url)
@@ -392,6 +497,8 @@ class DesktopController:
                     pyautogui.press("enter")
                     time.sleep(0.5)
                     pyautogui.press("enter")
+                    if status_callback:
+                        status_callback(f"🚀 [WhatsApp Web]: Sent message to {contact_name}.")
             except Exception as e:
                 print(f"[DesktopController] Autonomous send error: {e}", file=sys.stderr)
 
@@ -556,7 +663,7 @@ class DesktopController:
         elif action == "PLAY_PAUSE":
             cls._focus_browser()
             time.sleep(0.12)
-            pyautogui.press("k")
+            pyautogui.press("playpause")
             return "Toggled video playback."
         elif action == "FULLSCREEN":
             cls._focus_browser()
@@ -571,36 +678,58 @@ class DesktopController:
     # ─── Main Intent Dispatcher ──────────────────────────────────────────────
 
     @classmethod
-    def execute_command(cls, command_str: str) -> Optional[str]:
+    def execute_command(
+        cls, 
+        command_str: str, 
+        status_callback: Optional[Callable[[str], None]] = None
+    ) -> Optional[str]:
         """
         Executes autonomous step-by-step actions based on user command:
         1. Analyzes live screen state if requested.
-        2. Browser Tab controls (New tab, close tab, switch tab, refresh).
-        3. Screen scrolling & zoom controls (with Win32 foreground focusing).
-        4. Streaming movies & shows on specific websites (Prime Video, JioCinema, Netflix, YouTube).
-        5. Autonomous WhatsApp messaging (draft, navigate, type, send).
-        6. Volume & desktop hotkeys.
-        7. Web search and application launching.
-        8. Cognitive AI Action Planner fallback.
+        2. Visual grounding & clicking on screen elements.
+        3. Browser Tab controls (New tab, close tab, switch tab, refresh).
+        4. Screen scrolling & zoom controls (with Win32 foreground focusing).
+        5. Streaming movies & shows on specific websites (Prime Video, JioCinema, Netflix, YouTube).
+        6. Autonomous WhatsApp messaging (draft, navigate, type, send).
+        7. Window Focus, Switching & Window Management (Maximize, Minimize, Snap, Alt-Tab).
+        8. Productivity hotkeys (Copy, Paste, Undo, Save, Select All).
+        9. Multimedia & System Controls (Volume, Play/Pause, Next/Prev Track).
+        10. Web search and application launching.
+        11. Cognitive AI Action Planner fallback.
         """
         raw = command_str.strip()
         cmd = raw.lower()
-        # Handle common voice recognition typos and homophones
         clean_cmd = cmd.replace("porime", "prime")
 
         # ── 1. Live Screen Analysis ───────────────────────────────────────────
         if any(w in clean_cmd for w in ("analyze my screen", "see my screen", "what is on my screen", 
                                         "look at my screen", "read my screen", "what am i working on", 
                                         "check my screen", "read screen", "examine screen", "look screen")):
+            if status_callback:
+                status_callback("🔍 [Vision]: Capturing and analyzing live screen...")
             return cls.analyze_live_screen(raw)
 
-        # ── 2. Browser Tab Controls ──────────────────────────────────────────
-        # Checked BEFORE fuzzy open so "open tabs on chrome" opens a tab, not an app!
+        # ── 2. Visual Grounding: Click on Screen Elements ─────────────────────
+        click_match = re.search(r"^(?:please\s+)?(?:(double|right)\s+)?click\s+(?:on\s+)?(.+)$", clean_cmd)
+        if click_match and PYAUTOGUI_OK:
+            click_type = click_match.group(1) or "single"
+            target_desc = click_match.group(2).strip()
+            # Avoid matching generic tab commands
+            if not any(k in target_desc for k in ("tab", "window", "down", "up")):
+                if status_callback:
+                    status_callback(f"🎯 [Vision]: Locating '{target_desc}' on screen to click...")
+                res = cls.visual_click(target_desc, click_type=click_type)
+                if res:
+                    return res
+
+        # ── 3. Browser Tab Controls ──────────────────────────────────────────
         if any(k in clean_cmd for k in ("new tab", "open tab", "opening tab", "open tabs", "opening tabs", "create tab", "another tab")) or re.search(r"\b(?:open|create|add|new)\s+(?:a\s+)?tabs?\b", clean_cmd):
             if PYAUTOGUI_OK:
                 cls._focus_browser()
                 time.sleep(0.12)
                 pyautogui.hotkey("ctrl", "t")
+                if status_callback:
+                    status_callback("🌐 [Browser]: Opened a new tab.")
                 return "Opened a new tab."
 
         if any(k in clean_cmd for k in ("close tab", "close this tab", "shut tab", "close current tab", "exit tab", "close the tab", "shut the tab")) or re.search(r"\b(?:close|shut|kill|exit)\s+(?:the\s+|this\s+|current\s+)?tab\b", clean_cmd):
@@ -608,6 +737,8 @@ class DesktopController:
                 cls._focus_browser()
                 time.sleep(0.12)
                 pyautogui.hotkey("ctrl", "w")
+                if status_callback:
+                    status_callback("🌐 [Browser]: Closed current tab.")
                 return "Closed the current tab."
 
         if any(k in clean_cmd for k in ("reopen tab", "restore tab", "undo close tab")):
@@ -652,18 +783,22 @@ class DesktopController:
                 pyautogui.hotkey("alt", "right")
                 return "Navigated forward."
 
-        # ── 3. Screen Scrolling & Zoom Controls ──────────────────────────────
+        # ── 4. Screen Scrolling & Zoom Controls ──────────────────────────────
         if PYAUTOGUI_OK:
             if re.search(r"\bscroll\s+(?:the\s+(?:web\s*)?page\s+)?down\b|\bpage\s+down\b|\bgo\s+down\b", clean_cmd) or ("scroll" in clean_cmd and "down" in clean_cmd):
                 cls._focus_browser()
                 time.sleep(0.12)
                 pyautogui.scroll(-750)
+                if status_callback:
+                    status_callback("🖥️ [Desktop]: Scrolled down webpage.")
                 return "Scrolled down."
 
             if re.search(r"\bscroll\s+(?:the\s+(?:web\s*)?page\s+)?up\b|\bpage\s+up\b|\bgo\s+up\b", clean_cmd) or ("scroll" in clean_cmd and "up" in clean_cmd):
                 cls._focus_browser()
                 time.sleep(0.12)
                 pyautogui.scroll(750)
+                if status_callback:
+                    status_callback("🖥️ [Desktop]: Scrolled up webpage.")
                 return "Scrolled up."
 
             if any(k in clean_cmd for k in ("zoom in", "magnify", "make bigger", "enlarge", "zoom in a bit")):
@@ -684,11 +819,19 @@ class DesktopController:
                 pyautogui.hotkey("ctrl", "0")
                 return "Reset zoom to 100%."
 
-            if any(k in clean_cmd for k in ("play video", "pause video", "toggle pause", "stop video", "resume video")):
+            if any(k in clean_cmd for k in ("play video", "pause video", "toggle pause", "stop video", "resume video", "pause music", "play music")):
                 cls._focus_browser()
                 time.sleep(0.12)
-                pyautogui.press("k")
-                return "Toggled video playback."
+                pyautogui.press("playpause")
+                return "Toggled playback."
+
+            if any(k in clean_cmd for k in ("next song", "next track", "skip track", "skip song")):
+                pyautogui.press("nexttrack")
+                return "Skipped to next track."
+
+            if any(k in clean_cmd for k in ("previous song", "prev song", "previous track", "prev track")):
+                pyautogui.press("prevtrack")
+                return "Returned to previous track."
 
             if any(k in clean_cmd for k in ("fullscreen", "toggle fullscreen", "exit fullscreen")):
                 cls._focus_browser()
@@ -696,9 +839,9 @@ class DesktopController:
                 pyautogui.press("f")
                 return "Toggled fullscreen."
 
-        # ── 4. Streaming Movies & Shows on Specific Websites ─────────────────
+        # ── 5. Streaming Movies & Shows on Specific Websites ─────────────────
         stream_match = re.search(
-            r"(?:(?:open|play|search|watch|find|stream|show|am saying|saying|put|and|like)\s+)*(?:(?:the\s+)?movie\s+)?(.+?)\s+(?:on|in)\s+(?:the\s+)?(prime\s*video|amazon\s*prime|prime|jiocinema|jio\s*cinema|jio|netflix|disney\s*hotstar|hotstar|disney|youtube|yt|zee5|sonyliv)\b",
+            r"(?:(?:open|play|search|watch|find|stream|show|am saying|saying|put|and|like)\s+)*(?:(?:the\s+)?movie\s+)?(.+?)\s+(?:on|in)\s+(?:the\s+)?(prime\s*video|amazon\s*prime|prime|jiocinema|jio\s*cinema|jio|netflix|disney\s*hotstar|hotstar|disney|youtube|yt|spotify|zee5|sonyliv)\b",
             clean_cmd
         )
         if stream_match:
@@ -713,7 +856,6 @@ class DesktopController:
                 "amazonprime": "https://www.primevideo.com/search/ref=atv_nb_sr?phrase={q}",
                 "prime": "https://www.primevideo.com/search/ref=atv_nb_sr?phrase={q}",
                 "jiocinema": "https://www.jiocinema.com/search/{q}",
-                "jiocinema": "https://www.jiocinema.com/search/{q}",
                 "jio": "https://www.jiocinema.com/search/{q}",
                 "netflix": "https://www.netflix.com/search?q={q}",
                 "disneyhotstar": "https://www.hotstar.com/in/explore?search_query={q}",
@@ -721,15 +863,18 @@ class DesktopController:
                 "disney": "https://www.hotstar.com/in/explore?search_query={q}",
                 "youtube": "https://www.youtube.com/results?search_query={q}",
                 "yt": "https://www.youtube.com/results?search_query={q}",
+                "spotify": "https://open.spotify.com/search/{q}",
                 "zee5": "https://www.zee5.com/search?q={q}",
                 "sonyliv": "https://www.sonyliv.com/search/{q}",
             }
             template = url_map.get(plat, "https://www.google.com/search?q={q}")
             target_url = template.format(q=urllib.parse.quote(title))
             webbrowser.open(target_url)
+            if status_callback:
+                status_callback(f"🎬 [Streaming]: Opening '{title.title()}' on {plat_raw.title()}...")
             return f"Opening '{title.title()}' on {plat_raw.title()}."
 
-        # ── 5. Autonomous WhatsApp Messaging ─────────────────────────────────
+        # ── 6. Autonomous WhatsApp Messaging ─────────────────────────────────
         msg_match = re.search(
             r"(?:send\s+(?:a\s+)?message\s+to|text|message)\s+([a-zA-Z0-9_\s]+?)\s+(?:saying|explaining|telling\s+(?:him|her|them)?|that|about)\s+(.+)",
             raw,
@@ -739,48 +884,86 @@ class DesktopController:
             friend_name = msg_match.group(1).strip()
             explanation = msg_match.group(2).strip()
             drafted_message = cls.draft_friend_message(friend_name, explanation)
-            cls.autonomous_whatsapp_send(friend_name, drafted_message)
+            cls.autonomous_whatsapp_send(friend_name, drafted_message, status_callback=status_callback)
             return (
                 f"Taking control of screen: Navigating to WhatsApp, finding {friend_name}, "
                 f"typing: \"{drafted_message}\", and sending it for you now."
             )
 
-        # ── 6. General Web Search & Google ───────────────────────────────────
-        search_match = re.search(r"^(?:please\s+)?(?:search for|search|google)\s+(.+)$", clean_cmd)
-        if search_match and not any(k in clean_cmd for k in ("open", "launch")):
-            query = search_match.group(1).strip()
-            webbrowser.open(f"https://www.google.com/search?q={urllib.parse.quote(query)}")
-            return f"Done. Searching Google for '{query}'."
+        # ── 7. Window Focus, Switching & Management ──────────────────────────
+        switch_match = re.search(r"^(?:switch\s+to|focus|bring\s+up|show)\s+([a-zA-Z0-9_\-\.\s]+)$", clean_cmd)
+        if switch_match:
+            target_app = switch_match.group(1).strip()
+            if target_app not in ("desktop", "window", "tab"):
+                if cls._switch_to_app(target_app):
+                    if status_callback:
+                        status_callback(f"🪟 [Window]: Switched to {target_app.title()}.")
+                    return f"Switched to {target_app.title()}."
 
-        # ── 7. Open Specific Websites / URLs ─────────────────────────────────
-        url_match = re.search(r"(?:open|go to|visit)\s+([a-zA-Z0-9-]+\.(?:com|org|net|io|ai|edu|gov|co|in)[^\s]*)", clean_cmd)
-        if url_match:
-            site = url_match.group(1).strip()
-            if not site.startswith("http"):
-                site = "https://" + site
-            webbrowser.open(site)
-            return f"Navigating to {site}."
+        if any(w in clean_cmd for w in ("maximize window", "maximize this window", "maximize")):
+            if PYAUTOGUI_OK:
+                pyautogui.hotkey("win", "up")
+                return "Maximized the active window."
 
-        # ── 8. App & Shell Folder Launching ──────────────────────────────────
-        for app_alias, app_target in cls.COMMON_APPS.items():
-            pattern = r"\b(?:open|launch|start|run|show)\s+(?:my\s+)?" + re.escape(app_alias) + r"\b"
-            if re.search(pattern, clean_cmd):
-                success = cls.launch_target(app_target)
-                if success:
-                    return f"Done, I've opened {app_alias.title()} for you."
-                else:
-                    return f"Attempted to open {app_alias}, but could not locate the executable."
+        if any(w in clean_cmd for w in ("minimize window", "minimize this window", "minimize active")):
+            if PYAUTOGUI_OK:
+                pyautogui.hotkey("win", "down")
+                return "Minimized the active window."
 
-        # ── 9. Code Editor Focus (Cursor / VS Code) ──────────────────────────
-        if any(w in clean_cmd for w in ("focus cursor", "bring up cursor", "focus code", "focus editor", "focus vs code")):
-            editor_info = cls._find_window_by_keywords(["cursor", "visual studio code"])
-            if editor_info:
-                cls._focus_target_window(editor_info[0], center_mouse=True, rect=editor_info[2])
-                return "Focused your code editor."
-            cls.launch_target("cursor")
-            return "Launched code editor."
+        if any(w in clean_cmd for w in ("snap left", "snap window left")):
+            if PYAUTOGUI_OK:
+                pyautogui.hotkey("win", "left")
+                return "Snapped window to the left."
 
-        # ── 10. Volume & System Hotkeys ──────────────────────────────────────
+        if any(w in clean_cmd for w in ("snap right", "snap window right")):
+            if PYAUTOGUI_OK:
+                pyautogui.hotkey("win", "right")
+                return "Snapped window to the right."
+
+        if any(w in clean_cmd for w in ("close window", "close this window", "close app", "exit window", "exit app")):
+            if PYAUTOGUI_OK:
+                pyautogui.hotkey("alt", "f4")
+                return "Closed the window."
+
+        # ── 8. Productivity & Clipboard Shortcuts ────────────────────────────
+        if PYAUTOGUI_OK:
+            if clean_cmd in ("copy", "copy this", "copy text"):
+                pyautogui.hotkey("ctrl", "c")
+                return "Copied to clipboard."
+
+            if clean_cmd in ("paste", "paste this", "paste text"):
+                pyautogui.hotkey("ctrl", "v")
+                return "Pasted from clipboard."
+
+            if clean_cmd in ("select all", "select everything"):
+                pyautogui.hotkey("ctrl", "a")
+                return "Selected all."
+
+            if clean_cmd in ("undo", "undo that"):
+                pyautogui.hotkey("ctrl", "z")
+                return "Undone."
+
+            if clean_cmd in ("redo", "redo that"):
+                pyautogui.hotkey("ctrl", "y")
+                return "Redone."
+
+            if clean_cmd in ("save", "save file", "save this"):
+                pyautogui.hotkey("ctrl", "s")
+                return "Saved file."
+
+            if clean_cmd in ("find on page", "search on page", "find in page"):
+                pyautogui.hotkey("ctrl", "f")
+                return "Opened find in page."
+
+            if clean_cmd in ("press enter", "hit enter"):
+                pyautogui.press("enter")
+                return "Pressed Enter."
+
+            if clean_cmd in ("press escape", "hit escape", "press esc"):
+                pyautogui.press("esc")
+                return "Pressed Escape."
+
+        # ── 9. Volume & System Controls ──────────────────────────────────────
         if PYAUTOGUI_OK:
             if any(w in clean_cmd for w in ("volume up", "increase volume", "louder")):
                 for _ in range(6):
@@ -792,7 +975,7 @@ class DesktopController:
                     pyautogui.press("volumedown")
                 return "Turned volume down."
 
-            if any(w in clean_cmd for w in ("mute volume", "mute audio", "unmute audio", "mute sound")):
+            if any(w in clean_cmd for w in ("mute volume", "mute audio", "unmute audio", "mute sound", "mute")):
                 pyautogui.press("volumemute")
                 return "Toggled volume mute."
 
@@ -811,7 +994,33 @@ class DesktopController:
                 img.save(desktop_path)
                 return f"Captured and saved screenshot to your Desktop: {os.path.basename(desktop_path)}."
 
-        # ── 11. Direct Typing Automation ─────────────────────────────────────
+        # ── 10. General Web Search & Google ──────────────────────────────────
+        search_match = re.search(r"^(?:please\s+)?(?:search for|search|google)\s+(.+)$", clean_cmd)
+        if search_match and not any(k in clean_cmd for k in ("open", "launch")):
+            query = search_match.group(1).strip()
+            webbrowser.open(f"https://www.google.com/search?q={urllib.parse.quote(query)}")
+            return f"Done. Searching Google for '{query}'."
+
+        # ── 11. Open Specific Websites / URLs ────────────────────────────────
+        url_match = re.search(r"(?:open|go to|visit)\s+([a-zA-Z0-9-]+\.(?:com|org|net|io|ai|edu|gov|co|in)[^\s]*)", clean_cmd)
+        if url_match:
+            site = url_match.group(1).strip()
+            if not site.startswith("http"):
+                site = "https://" + site
+            webbrowser.open(site)
+            return f"Navigating to {site}."
+
+        # ── 12. App & Shell Folder Launching ─────────────────────────────────
+        for app_alias, app_target in cls.COMMON_APPS.items():
+            pattern = r"\b(?:open|launch|start|run|show)\s+(?:my\s+)?" + re.escape(app_alias) + r"\b"
+            if re.search(pattern, clean_cmd):
+                success = cls.launch_target(app_target)
+                if success:
+                    return f"Done, I've opened {app_alias.title()} for you."
+                else:
+                    return f"Attempted to open {app_alias}, but could not locate the executable."
+
+        # ── 13. Direct Typing Automation ─────────────────────────────────────
         type_match = re.search(r"^(?:type|write|paste)\s+(.+)$", raw, re.IGNORECASE)
         if type_match and PYAUTOGUI_OK:
             text_to_type = type_match.group(1).strip()
@@ -824,7 +1033,7 @@ class DesktopController:
             except Exception as e:
                 return f"Could not type text: {e}"
 
-        # ── 12. Fuzzy Application Open Fallback ──────────────────────────────
+        # ── 14. Fuzzy Application Open Fallback ──────────────────────────────
         open_match = re.search(r"^(?:please\s+)?(?:open|launch|start|run)\s+([a-zA-Z0-9_\-\.\s]+)$", clean_cmd)
         if open_match:
             candidate = open_match.group(1).strip()
@@ -833,8 +1042,7 @@ class DesktopController:
                     if cls.launch_target(candidate):
                         return f"Executed: opened {candidate}."
 
-        # ── 13. Cognitive AI Action Planner Fallback (ChatGPT Style) ─────────
-        # When user phrasing is natural or novel, let the local VLM classify & execute
+        # ── 15. Cognitive AI Action Planner Fallback (ChatGPT Style) ─────────
         action_plan = cls._plan_action_with_llm(raw)
         if action_plan:
             planned_reply = cls._execute_planned_action(action_plan)
