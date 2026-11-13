@@ -1,17 +1,15 @@
-# PaiGen AI Core Dependencies (Pinned for Local Execution)
-pydantic>=2.7.0,<3.0.0
-requests>=2.31.0
+# PaiGen AI Pinned Dependencies
+# Tested on Python 3.10 - 3.12 (Windows 11 / Linux x86_64)
 
-# Optional Local Perception & Sensory Processing
-opencv-python>=4.9.0
-mediapipe>=0.10.14
-numpy>=1.26.0
+# Core Runtime & Persistence
+pydantic==2.8.2
+requests==2.32.3
 
-# Optional Local Fine-Tuning Experimentation (Requires NVIDIA GPU & CUDA)
-torch>=2.2.0
-transformers>=4.44.0
-datasets>=2.20.0
-peft>=0.12.0
-trl>=0.9.6
-bitsandbytes>=0.43.0
-
+# Local Fine-Tuning Stack (Requires NVIDIA GPU with CUDA 12.1 or 12.4)
+torch==2.4.0
+transformers==4.44.2
+datasets==2.21.0
+peft==0.12.0
+trl==0.9.6
+bitsandbytes==0.43.3
+accelerate==0.33.0

@@ -4,11 +4,10 @@ Architect: Arjun Singh
 
 Interfaces strictly with local LLM runtimes (Ollama on localhost:11434).
 Features:
-- True line-by-line token streaming (`query_stream`) and synchronous chat (`query`).
-- Persistent SQLite WAL chat history with user controls.
-- Grounded Local Knowledge Retrieval with real bibliographic [Source: ...] citations.
-- Active State Overrides: Explicit user overrides directly drive persona routing and state variables.
-- 100% offline, zero cloud calls.
+- Balanced turn pairs: Assembles complete user/assistant pairs for context.
+- Streaming by default: Line-by-line token generator (`query_stream`) and sync fallback (`query`).
+- Verified literature citations vs. project notes distinction.
+- Full override integration: Manual circadian phase, mood, fatigue, and persona overrides deterministically drive state.
 """
 
 import json
@@ -99,33 +98,35 @@ class CognitiveBrain:
             ctx.primary_language = override_lang
             ctx.is_user_override = True
 
+        # Override 4: Circadian Phase check
+        if self.db.get_override("circadian_phase"):
+            ctx.is_user_override = True
+
     def build_dynamic_system_prompt(self, ctx: TelemetryContext, user_query: str = "") -> str:
         """Constructs persona system prompt modulated by active telemetry and cited knowledge."""
 
-        # Apply user overrides directly to active state before routing
         self.apply_active_user_overrides(ctx)
-
-        # Check for explicit persona mode override
         override_persona = self.db.get_override("persona")
+        override_phase = self.db.get_override("circadian_phase")
 
         # Determine dominant persona based on active state variables
         if override_persona:
             persona_mode = override_persona.upper()
             guidance = f"User explicitly commanded persona '{persona_mode}'. Follow this mode strictly."
-        elif ctx.inferred_fatigue > 0.65 or ctx.inferred_valence < -0.35:
-            persona_mode = "EMPATHETIC_COMPANION"
-            guidance = (
-                f"Arjun is exhibiting estimated signs of fatigue or stress (Confidence: {ctx.telemetry_confidence:.0%}). "
-                "Adopt a soothing, grounded, and loyal companion presence. "
-                "Respond with gentle pacing, encourage hydration, and avoid overwhelming him. "
-                "Natural conversational Hinglish/Hindi is encouraged."
-            )
-        elif ctx.is_deep_focus or ctx.inferred_arousal > 0.65:
+        elif ctx.is_deep_focus and ctx.inferred_fatigue <= 0.65:
             persona_mode = "TACTICAL_STRATEGY_ADVISOR"
             guidance = (
                 "Arjun is locked in deep focus. "
                 "Be razor-sharp, analytical, highly structured, and direct. "
                 "Deliver immediate tactical clarity with minimum filler."
+            )
+        elif ctx.inferred_fatigue > 0.65 or ctx.inferred_valence < -0.35:
+            persona_mode = "EMPATHETIC_COMPANION"
+            guidance = (
+                f"Arjun is exhibiting signs of fatigue or stress (Confidence: {ctx.telemetry_confidence:.0%}). "
+                "Adopt a soothing, grounded, and loyal companion presence. "
+                "Respond with gentle pacing, encourage hydration, and avoid overwhelming him. "
+                "Natural conversational Hinglish/Hindi is encouraged."
             )
         else:
             persona_mode = "BALANCED_PARTNER"
@@ -139,7 +140,11 @@ class CognitiveBrain:
         if user_query:
             cited_block = self.retriever.format_cited_context_block(user_query, top_k=2)
             if cited_block:
-                cited_block = f"\n{cited_block}\n(Note: When addressing factual claims, cite the exact source titles and authors provided above. If no sources were found, transparently state so.)\n"
+                cited_block = (
+                    f"\n{cited_block}\n"
+                    f"(Guidance: Distinguish verified scholarly literature from curated project notes. "
+                    f"Cite source authors and titles accurately. If no relevant sources were found, transparently report so.)\n"
+                )
 
         override_status = " [ACTIVE USER OVERRIDES APPLIED - Ground Truth]" if ctx.is_user_override else " [Sensor/Heuristic Estimate]"
 
@@ -160,7 +165,8 @@ ACTIVE BEHAVIORAL DIRECTIVE:
     user_name=ctx.user_name,
     observed_valence=ctx.inferred_valence,
     fatigue_score=ctx.inferred_fatigue,
-    trust_level=ctx.trust_score
+    trust_level=ctx.trust_score,
+    forced_phase_name=override_phase
 )}
 {cited_block}
 {HistoricalAdvisor.build_epistemic_system_prompt_addon()}
@@ -174,14 +180,14 @@ STRICT INVARIANT: You run 100% locally on localhost. Zero cloud calls."""
         user_input: str,
         ctx: Optional[TelemetryContext] = None,
     ) -> str:
-        """Synchronous query to local Ollama API with chronological persistent history."""
+        """Synchronous query with complete user/assistant turn pairs."""
         if ctx is None:
             ctx = TelemetryContext()
 
         self.db.get_or_create_session(ctx.session_id)
 
-        # 1. Fetch recent history chronologically (prior to adding new message)
-        history_records = self.db.get_session_history(ctx.session_id, limit=6)
+        # 1. Fetch recent history in complete turn pairs
+        paired_history = self.db.get_session_turn_pairs(ctx.session_id, max_pairs=3)
 
         # 2. Persist new user message
         self.db.add_message(ctx.session_id, "user", user_input)
@@ -189,7 +195,7 @@ STRICT INVARIANT: You run 100% locally on localhost. Zero cloud calls."""
         system_prompt = self.build_dynamic_system_prompt(ctx, user_query=user_input)
 
         messages = [{"role": "system", "content": system_prompt}]
-        for rec in history_records:
+        for rec in paired_history:
             messages.append({"role": rec.role, "content": rec.content})
         messages.append({"role": "user", "content": user_input})
 
@@ -215,8 +221,6 @@ STRICT INVARIANT: You run 100% locally on localhost. Zero cloud calls."""
             with urllib.request.urlopen(req, timeout=30) as resp:
                 result = json.loads(resp.read().decode("utf-8"))
                 assistant_message = result.get("message", {}).get("content", "")
-                
-                # Persist assistant response
                 self.db.add_message(ctx.session_id, "assistant", assistant_message)
                 return assistant_message
         except urllib.error.URLError as e:
@@ -232,18 +236,18 @@ STRICT INVARIANT: You run 100% locally on localhost. Zero cloud calls."""
         user_input: str,
         ctx: Optional[TelemetryContext] = None,
     ) -> Generator[str, None, None]:
-        """True line-by-line token streaming generator from local Ollama API."""
+        """True line-by-line token streaming generator with complete turn pairs."""
         if ctx is None:
             ctx = TelemetryContext()
 
         self.db.get_or_create_session(ctx.session_id)
-        history_records = self.db.get_session_history(ctx.session_id, limit=6)
+        paired_history = self.db.get_session_turn_pairs(ctx.session_id, max_pairs=3)
         self.db.add_message(ctx.session_id, "user", user_input)
 
         system_prompt = self.build_dynamic_system_prompt(ctx, user_query=user_input)
 
         messages = [{"role": "system", "content": system_prompt}]
-        for rec in history_records:
+        for rec in paired_history:
             messages.append({"role": rec.role, "content": rec.content})
         messages.append({"role": "user", "content": user_input})
 

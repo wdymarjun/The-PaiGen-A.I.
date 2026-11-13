@@ -3,11 +3,11 @@ PaiGen AI: SQLite WAL Persistence Layer
 Architect: Arjun Singh
 
 Thread-safe local SQLite database with Write-Ahead Logging (WAL mode).
-Fixes:
-- Chronological ordering: Retrieves the most recent N messages and reverses them.
-- Accurate timestamp parsing: Handles both standard SQLite "YYYY-MM-DD HH:MM:SS" and ISO formats.
-- Session lifecycle: Complete message deletion, session reset, and session recreation.
-- Direct state override storage for deterministic persona driving.
+Features:
+- Balanced turn pairs: `get_session_turn_pairs(session_id, max_pairs)` ensures history
+  always begins on a user turn and contains complete user/assistant pairs.
+- Accurate timestamp parsing for standard SQLite and ISO formats.
+- Complete reset controls: `clear_all_overrides()` to wipe persistent overrides on /reset.
 """
 
 from contextlib import contextmanager
@@ -35,14 +35,12 @@ def parse_sqlite_timestamp(timestamp_str: str) -> datetime:
         return datetime.now()
     
     timestamp_str = str(timestamp_str).strip()
-    # Try standard SQLite format first: "2026-11-14 02:30:00"
     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f"):
         try:
             return datetime.strptime(timestamp_str, fmt)
         except ValueError:
             continue
 
-    # Fallback to fromisoformat
     try:
         return datetime.fromisoformat(timestamp_str)
     except Exception:
@@ -141,10 +139,7 @@ class SQLiteWALStore:
             return cursor.lastrowid
 
     def get_session_history(self, session_id: str, limit: int = 50) -> List[ChatMessageRecord]:
-        """
-        Fetches the MOST RECENT `limit` messages from the database,
-        then reverses them to return in proper chronological order (oldest -> newest).
-        """
+        """Fetches the most recent `limit` messages in chronological order."""
         with self._lock, self._connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -161,19 +156,44 @@ class SQLiteWALStore:
             records = []
             for r in rows:
                 meta = json.loads(r["metadata_json"]) if r["metadata_json"] else {}
-                parsed_time = parse_sqlite_timestamp(r["timestamp"])
                 records.append(ChatMessageRecord(
                     id=r["id"],
                     session_id=r["session_id"],
                     role=r["role"],
                     content=r["content"],
-                    timestamp=parsed_time,
+                    timestamp=parse_sqlite_timestamp(r["timestamp"]),
                     metadata=meta
                 ))
 
-            # Reverse to chronological order (oldest to newest)
             records.reverse()
             return records
+
+    def get_session_turn_pairs(self, session_id: str, max_pairs: int = 3) -> List[ChatMessageRecord]:
+        """
+        Fetches conversation history guaranteed to consist of complete user/assistant turn pairs.
+        Prevents orphan assistant turns at the start of the LLM context window.
+        """
+        # Fetch up to 2 * max_pairs + 2 to find clean pair boundaries
+        raw_recent = self.get_session_history(session_id, limit=max_pairs * 2 + 2)
+        if not raw_recent:
+            return []
+
+        # Find the earliest clean user turn in the window
+        start_idx = 0
+        while start_idx < len(raw_recent) and raw_recent[start_idx].role != "user":
+            start_idx += 1
+
+        clean_history = raw_recent[start_idx:]
+        
+        # If the history ends on an incomplete turn (e.g. user without assistant yet), keep only completed pairs
+        # up to the last 2 * max_pairs messages
+        if len(clean_history) > max_pairs * 2:
+            clean_history = clean_history[-(max_pairs * 2):]
+            # Ensure it still starts with user
+            if clean_history and clean_history[0].role != "user":
+                clean_history = clean_history[1:]
+
+        return clean_history
 
     def clear_session_history(self, session_id: str) -> int:
         """Securely wipes chat history for the given session and updates last_active."""
@@ -209,6 +229,13 @@ class SQLiteWALStore:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM user_overrides WHERE key = ?", (key.strip().lower(),))
             return cursor.rowcount > 0
+
+    def clear_all_overrides(self) -> int:
+        """Wipes all active user overrides to return completely to baseline."""
+        with self._lock, self._connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM user_overrides")
+            return cursor.rowcount
 
     def list_overrides(self) -> Dict[str, str]:
         with self._lock, self._connection() as conn:

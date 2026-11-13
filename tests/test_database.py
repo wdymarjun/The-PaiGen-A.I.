@@ -1,9 +1,9 @@
 """
 PaiGen AI: Database Persistence & User Control Tests
-Verifies SQLite WAL concurrency, session history, and user state overrides.
+Verifies SQLite WAL concurrency, balanced turn pair history, and user state overrides.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
 import tempfile
 import unittest
 from pathlib import Path
@@ -31,11 +31,9 @@ class TestSQLiteWALStore(unittest.TestCase):
         session_id = "test_ordering_session"
         self.store.get_or_create_session(session_id)
 
-        # Add 10 numbered messages
         for i in range(1, 11):
             self.store.add_message(session_id, "user" if i % 2 != 0 else "assistant", f"Message {i}")
 
-        # Fetch with limit=5: Must return messages 6, 7, 8, 9, 10 in chronological order
         history = self.store.get_session_history(session_id, limit=5)
         self.assertEqual(len(history), 5)
 
@@ -43,8 +41,25 @@ class TestSQLiteWALStore(unittest.TestCase):
         actual_contents = [msg.content for msg in history]
         self.assertEqual(actual_contents, expected_contents)
 
+    def test_balanced_turn_pairs_guarantees_user_start(self):
+        session_id = "test_turn_pairs_session"
+        self.store.get_or_create_session(session_id)
+
+        # Sequence: U1, A1, U2, A2, U3, A3
+        for i in range(1, 4):
+            self.store.add_message(session_id, "user", f"User question {i}")
+            self.store.add_message(session_id, "assistant", f"Assistant answer {i}")
+
+        # Fetch max_pairs=2 (should get U2, A2, U3, A3)
+        pairs = self.store.get_session_turn_pairs(session_id, max_pairs=2)
+        self.assertEqual(len(pairs), 4)
+        self.assertEqual(pairs[0].role, "user")
+        self.assertEqual(pairs[0].content, "User question 2")
+        self.assertEqual(pairs[1].role, "assistant")
+        self.assertEqual(pairs[2].role, "user")
+        self.assertEqual(pairs[3].role, "assistant")
+
     def test_timestamp_parsing_accuracy(self):
-        # Test standard SQLite format
         sqlite_ts = "2026-11-14 02:30:15"
         parsed = parse_sqlite_timestamp(sqlite_ts)
         self.assertEqual(parsed.year, 2026)
@@ -59,24 +74,27 @@ class TestSQLiteWALStore(unittest.TestCase):
         self.store.get_or_create_session(session_id)
         self.store.add_message(session_id, "user", "Secret info")
 
-        # Verify it exists
         self.assertEqual(len(self.store.get_session_history(session_id)), 1)
-
-        # Clear session
         deleted = self.store.clear_session_history(session_id)
         self.assertEqual(deleted, 1)
         self.assertEqual(len(self.store.get_session_history(session_id)), 0)
 
-    def test_user_state_overrides(self):
+    def test_user_state_overrides_and_complete_wipe(self):
         self.store.set_override("circadian_phase", "Midday Executive Peak")
         self.store.set_override("mood", "Focused")
 
         self.assertEqual(self.store.get_override("circadian_phase"), "Midday Executive Peak")
         self.assertEqual(self.store.get_override("mood"), "Focused")
 
-        # Delete override
+        # Test single delete
         self.assertTrue(self.store.delete_override("mood"))
         self.assertIsNone(self.store.get_override("mood"))
+
+        # Test clear all overrides
+        self.store.set_override("mood", "Happy")
+        wiped = self.store.clear_all_overrides()
+        self.assertGreaterEqual(wiped, 2)
+        self.assertEqual(len(self.store.list_overrides()), 0)
 
 
 if __name__ == "__main__":

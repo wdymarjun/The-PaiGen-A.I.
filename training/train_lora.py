@@ -2,15 +2,51 @@
 PaiGen AI: Standalone Local QLoRA Fine-Tuning Script
 Architect: Arjun Singh
 
-Runs strictly on local hardware (e.g., NVIDIA RTX 5050 Laptop GPU, 8GB VRAM).
 Fine-tunes a local base model on compiled ChatML curriculum datasets using 4-bit NF4
 quantization and PEFT LoRA adapters.
-Compatible across modern TRL releases (supporting both SFTConfig and TrainingArguments).
+Properly formats ChatML messages using the model's official tokenizer chat template
+(`apply_chat_template`) rather than passing raw dictionary structures.
 """
 
 import argparse
 import os
 from pathlib import Path
+
+
+def format_dataset_with_chat_template(dataset, tokenizer):
+    """
+    Applies the model's official chat template to the 'messages' array,
+    producing a clean, tokenizable 'text' field for SFTTrainer.
+    """
+    def _format(example):
+        formatted_prompt = tokenizer.apply_chat_template(
+            example["messages"],
+            tokenize=False,
+            add_generation_prompt=False,
+        )
+        return {"text": formatted_prompt}
+
+    return dataset.map(_format, remove_columns=["messages"])
+
+
+def verify_dataset_formatting(base_model_id: str, dataset_path: str):
+    """Verifies that the dataset cleanly maps to the model's chat template."""
+    try:
+        from datasets import load_dataset
+        from transformers import AutoTokenizer
+    except ImportError as e:
+        print(f"[!] Dependencies not installed for verification: {e}")
+        return False
+
+    print(f"[*] Testing chat template formatting on: {base_model_id}")
+    tokenizer = AutoTokenizer.from_pretrained(base_model_id, trust_remote_code=True)
+    dataset = load_dataset("json", data_files=dataset_path, split="train")
+
+    formatted = format_dataset_with_chat_template(dataset, tokenizer)
+    sample_text = formatted[0]["text"]
+    print(f"[+] Successfully verified formatting! First sample preview:\n{'-'*60}\n{sample_text[:300]}...\n{'-'*60}")
+    print(f"[+] Total verified training samples: {len(formatted)}")
+    return True
 
 
 def run_training(
@@ -45,7 +81,6 @@ def run_training(
     vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
     print(f"[*] Initializing PaiGen Brain Fine-Tuning on: {base_model_id}")
     print(f"[*] Target GPU: {gpu_name} ({vram_gb:.2f} GB VRAM)")
-    print(f"[*] TRL Version: {trl.__version__}")
 
     # 4-bit Quantization Configuration for 8GB VRAM
     bnb_config = BitsAndBytesConfig(
@@ -79,55 +114,33 @@ def run_training(
     model = get_peft_model(model, lora_config)
     model.print_trainable_parameters()
 
-    dataset = load_dataset("json", data_files=dataset_path, split="train")
+    raw_dataset = load_dataset("json", data_files=dataset_path, split="train")
+    # Apply official ChatML chat template to format clean text
+    formatted_dataset = format_dataset_with_chat_template(raw_dataset, tokenizer)
 
-    # Adapt across TRL versions (SFTConfig in >=0.9 vs TrainingArguments in older)
-    if hasattr(trl, "SFTConfig"):
-        training_args = trl.SFTConfig(
-            output_dir=output_dir,
-            per_device_train_batch_size=2,
-            gradient_accumulation_steps=4,
-            warmup_steps=10,
-            max_steps=max_steps,
-            learning_rate=2e-4,
-            fp16=True,
-            logging_steps=10,
-            save_strategy="steps",
-            save_steps=50,
-            report_to="none",  # Strict Invariant: Zero cloud telemetry
-            max_seq_length=1024,
-            dataset_text_field="messages",
-        )
-        trainer = SFTTrainer(
-            model=model,
-            train_dataset=dataset,
-            peft_config=lora_config,
-            tokenizer=tokenizer,
-            args=training_args,
-        )
-    else:
-        training_args = TrainingArguments(
-            output_dir=output_dir,
-            per_device_train_batch_size=2,
-            gradient_accumulation_steps=4,
-            warmup_steps=10,
-            max_steps=max_steps,
-            learning_rate=2e-4,
-            fp16=True,
-            logging_steps=10,
-            save_strategy="steps",
-            save_steps=50,
-            report_to="none",
-        )
-        trainer = SFTTrainer(
-            model=model,
-            train_dataset=dataset,
-            peft_config=lora_config,
-            dataset_text_field="messages",
-            max_seq_length=1024,
-            tokenizer=tokenizer,
-            args=training_args,
-        )
+    training_args = TrainingArguments(
+        output_dir=output_dir,
+        per_device_train_batch_size=2,
+        gradient_accumulation_steps=4,
+        warmup_steps=10,
+        max_steps=max_steps,
+        learning_rate=2e-4,
+        fp16=True,
+        logging_steps=10,
+        save_strategy="steps",
+        save_steps=50,
+        report_to="none",  # Strict Invariant: Zero cloud telemetry
+    )
+
+    trainer = SFTTrainer(
+        model=model,
+        train_dataset=formatted_dataset,
+        peft_config=lora_config,
+        dataset_text_field="text",
+        max_seq_length=1024,
+        tokenizer=tokenizer,
+        args=training_args,
+    )
 
     print("[*] Starting Local Training...")
     trainer.train()
@@ -144,11 +157,15 @@ if __name__ == "__main__":
     parser.add_argument("--dataset", default="./training/paigen_chatml_dataset.jsonl", help="Dataset path")
     parser.add_argument("--output", default="./output/paigen-brain-lora", help="Output directory")
     parser.add_argument("--steps", type=int, default=150, help="Training steps")
+    parser.add_argument("--verify-only", action="store_true", help="Only verify chat template formatting")
     args = parser.parse_args()
 
-    run_training(
-        base_model_id=args.model,
-        dataset_path=args.dataset,
-        output_dir=args.output,
-        max_steps=args.steps
-    )
+    if args.verify_only:
+        verify_dataset_formatting(args.model, args.dataset)
+    else:
+        run_training(
+            base_model_id=args.model,
+            dataset_path=args.dataset,
+            output_dir=args.output,
+            max_steps=args.steps
+        )
