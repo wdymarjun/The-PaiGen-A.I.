@@ -144,3 +144,4 @@ class CurriculumDatasetGenerator:
                 f.write(json.dumps(chatml_entry, ensure_ascii=False) + "\n")
 
         return output_file
+

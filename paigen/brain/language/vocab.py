@@ -173,3 +173,4 @@ class VocabularyRegistry:
     @classmethod
     def get_all(cls) -> List[ConceptWord]:
         return CORE_VOCABULARY
+

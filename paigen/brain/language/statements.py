@@ -168,3 +168,4 @@ class StatementRegistry:
     @classmethod
     def get_all(cls) -> List[DevelopmentalStatement]:
         return FOUNDATIONAL_STATEMENTS
+

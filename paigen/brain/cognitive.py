@@ -134,3 +134,4 @@ STRICT RULE: Never hallucinate cloud connectivity. All operations, memory, and t
             )
             logger.warning(fallback)
             return fallback
+
