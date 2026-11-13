@@ -148,3 +148,4 @@ class FACSAnalyzer:
     @classmethod
     def get_all_complex_patterns(cls) -> List[ComplexEmotionPattern]:
         return COMPLEX_EMOTION_PATTERNS
+
