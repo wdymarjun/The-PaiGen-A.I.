@@ -22,6 +22,11 @@ from paigen.brain.knowledge.affective_scenarios import (
     AffectiveScenarioRegistry,
     AffectiveScenario,
 )
+from paigen.brain.knowledge.retriever import (
+    LocalKnowledgeRetriever,
+    CitedDocument,
+    RetrievalResult,
+)
 
 __all__ = [
     "HumanConditionRegistry",
@@ -39,4 +44,7 @@ __all__ = [
     "BiologicalSystem",
     "AffectiveScenarioRegistry",
     "AffectiveScenario",
+    "LocalKnowledgeRetriever",
+    "CitedDocument",
+    "RetrievalResult",
 ]

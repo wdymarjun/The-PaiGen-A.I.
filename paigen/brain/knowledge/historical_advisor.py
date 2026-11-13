@@ -6,7 +6,7 @@ Bridges world history lessons, human nature models, and the French Revolution's
 critical mistakes directly into PaiGen's Tactical Strategy Advisor and Empathetic Companion.
 """
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from paigen.brain.knowledge.human_condition import HumanConditionRegistry, MentalModel
 from paigen.brain.knowledge.world_history import WorldHistoryRegistry, HistoricalEvent
 

@@ -8,7 +8,7 @@ from paigen.core.evolution import (
     EvolutionaryDecisionEngine,
     EvolutionDirective,
     EvolutionTriggerReason,
-    MetaMutator,
+    PatchProposalEngine,
 )
 
 __all__ = [
@@ -19,6 +19,5 @@ __all__ = [
     "EvolutionaryDecisionEngine",
     "EvolutionDirective",
     "EvolutionTriggerReason",
-    "MetaMutator",
+    "PatchProposalEngine",
 ]
-

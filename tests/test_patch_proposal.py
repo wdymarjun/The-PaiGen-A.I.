@@ -1,0 +1,66 @@
+"""
+PaiGen AI: Reviewable Patch Proposal Safety Tests
+Verifies that code evolution produces .patch files for review without altering source files.
+"""
+
+import tempfile
+import unittest
+from pathlib import Path
+
+from paigen.core.evolution.meta_mutator import PatchProposalEngine
+
+
+class TestPatchProposalEngine(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.repo_root = Path(self.temp_dir.name)
+
+        # Create dummy file to propose changes against
+        self.dummy_file = self.repo_root / "dummy_module.py"
+        with open(self.dummy_file, "w", encoding="utf-8") as f:
+            f.write("def compute(x):\n    return x + 1\n")
+
+        self.engine = PatchProposalEngine(self.repo_root)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_generates_patch_without_modifying_source(self):
+        proposed_code = "def compute(x):\n    # Optimized\n    return x * 2\n"
+        success, msg, patch_path = self.engine.generate_reviewable_patch(
+            target_relative_path="dummy_module.py",
+            proposed_code=proposed_code,
+            rationale="Optimize computation speed"
+        )
+
+        self.assertTrue(success)
+        self.assertIsNotNone(patch_path)
+        self.assertTrue(patch_path.exists())
+
+        # Verify original file was NOT modified on disk
+        with open(self.dummy_file, "r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertIn("return x + 1", content)
+        self.assertNotIn("return x * 2", content)
+
+        # Verify patch content
+        with open(patch_path, "r", encoding="utf-8") as f:
+            patch_text = f.read()
+        self.assertIn("Optimize computation speed", patch_text)
+        self.assertIn("--- a/dummy_module.py", patch_text)
+        self.assertIn("+++ b/dummy_module.py", patch_text)
+
+    def test_rejects_syntax_errors_in_proposals(self):
+        invalid_code = "def broken(x\n    return x"
+        success, msg, patch_path = self.engine.generate_reviewable_patch(
+            target_relative_path="dummy_module.py",
+            proposed_code=invalid_code,
+            rationale="Broken syntax test"
+        )
+        self.assertFalse(success)
+        self.assertIn("syntax validation", msg.lower())
+        self.assertIsNone(patch_path)
+
+
+if __name__ == "__main__":
+    unittest.main()
