@@ -193,3 +193,4 @@ class BiologyRegistry:
     @classmethod
     def get_by_branch(cls, branch_name: str) -> List[BiologicalSystem]:
         return [b for b in BIOLOGY_KNOWLEDGE_BASE if branch_name.lower() in b.branch.lower()]
+
