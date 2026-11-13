@@ -14,6 +14,10 @@ from paigen.brain.knowledge.mathematics import (
     MathematicsRegistry,
     MathematicalDomain,
 )
+from paigen.brain.knowledge.biology import (
+    BiologyRegistry,
+    BiologicalSystem,
+)
 
 __all__ = [
     "HumanConditionRegistry",
@@ -27,4 +31,6 @@ __all__ = [
     "HumanCreativeGenre",
     "MathematicsRegistry",
     "MathematicalDomain",
+    "BiologyRegistry",
+    "BiologicalSystem",
 ]

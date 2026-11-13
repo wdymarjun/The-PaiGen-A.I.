@@ -18,6 +18,7 @@ from paigen.brain.knowledge.world_history import WorldHistoryRegistry
 from paigen.brain.knowledge.human_condition import HumanConditionRegistry
 from paigen.brain.knowledge.philosophy_and_creativity import PhilosophyAndCreativityRegistry
 from paigen.brain.knowledge.mathematics import MathematicsRegistry
+from paigen.brain.knowledge.biology import BiologyRegistry
 
 
 class CurriculumDatasetGenerator:
@@ -244,6 +245,29 @@ class CurriculumDatasetGenerator:
             })
         return records
 
+    def generate_biology_curriculum(self) -> List[Dict[str, Any]]:
+        """Level 7: Biology, Human Physiology, Neuromuscular Mechanics, Botany & Entomology."""
+        records = []
+        for bio in BiologyRegistry.get_all():
+            records.append({
+                "stage": 3,
+                "category": "advanced_biology_and_physiology",
+                "instruction": (
+                    f"Explain the biological system '{bio.name}' ({bio.branch}). "
+                    f"Detail the step-by-step governing mechanisms, the molecular and biomechanical architecture, "
+                    f"and explain why this understanding is vital for PaiGen as an autonomous human companion."
+                ),
+                "input": f"Biological System: {bio.name}",
+                "output": (
+                    f"System: {bio.name} ({bio.branch})\n\n"
+                    f"Governing Mechanisms:\n" + "\n".join(f"- {m}" for m in bio.governing_mechanisms) + "\n\n"
+                    f"Molecular & Biomechanical Architecture:\n{bio.molecular_and_biomechanical_details}\n\n"
+                    f"Companion AI Grounding:\n{bio.relevance_to_ai_companion}"
+                ),
+                "metadata": {"tags": bio.tags, "system_id": bio.system_id}
+            })
+        return records
+
     def export_all(self) -> Path:
         """Compiles and exports the complete curriculum into JSONL."""
         all_records = (
@@ -252,7 +276,8 @@ class CurriculumDatasetGenerator:
             self.generate_statement_curriculum() +
             self.generate_history_curriculum() +
             self.generate_philosophy_and_creativity_curriculum() +
-            self.generate_mathematics_curriculum()
+            self.generate_mathematics_curriculum() +
+            self.generate_biology_curriculum()
         )
 
         output_file = self.output_dir / "paigen_language_curriculum.jsonl"

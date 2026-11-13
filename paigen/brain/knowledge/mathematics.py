@@ -207,3 +207,4 @@ class MathematicsRegistry:
     @classmethod
     def get_by_titan(cls, titan_name: str) -> List[MathematicalDomain]:
         return [m for m in MATHEMATICS_KNOWLEDGE_BASE if any(titan_name.lower() in t.lower() for t in m.titans)]
+
