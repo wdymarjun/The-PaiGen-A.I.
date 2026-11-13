@@ -225,3 +225,4 @@ class PhilosophyAndCreativityRegistry:
     @classmethod
     def get_all_genres(cls) -> List[HumanCreativeGenre]:
         return CREATIVE_GENRES_REGISTRY
+

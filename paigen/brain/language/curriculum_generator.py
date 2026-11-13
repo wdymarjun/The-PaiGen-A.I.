@@ -17,6 +17,7 @@ from paigen.brain.language.statements import StatementRegistry
 from paigen.brain.knowledge.world_history import WorldHistoryRegistry
 from paigen.brain.knowledge.human_condition import HumanConditionRegistry
 from paigen.brain.knowledge.philosophy_and_creativity import PhilosophyAndCreativityRegistry
+from paigen.brain.knowledge.mathematics import MathematicsRegistry
 
 
 class CurriculumDatasetGenerator:
@@ -219,6 +220,30 @@ class CurriculumDatasetGenerator:
 
         return records
 
+    def generate_mathematics_curriculum(self) -> List[Dict[str, Any]]:
+        """Level 6: Advanced Mathematics, Pure Theory, Theoretical Physics & Engineering Math."""
+        records = []
+        for math_domain in MathematicsRegistry.get_all():
+            records.append({
+                "stage": 3,
+                "category": "advanced_mathematics_and_physics",
+                "instruction": (
+                    f"Analyze the mathematical discipline '{math_domain.name}' ({math_domain.category}). "
+                    f"Detail the foundational theorems/equations associated with {', '.join(math_domain.titans)}, "
+                    f"explain the intuitive breakthrough, and how this mathematics empowers PaiGen's artificial intelligence."
+                ),
+                "input": f"Mathematical Discipline: {math_domain.name}",
+                "output": (
+                    f"Discipline: {math_domain.name} ({math_domain.category})\n"
+                    f"Titans & Pioneers: {', '.join(math_domain.titans)}\n\n"
+                    f"Foundational Theorems & Equations:\n" + "\n".join(f"- {eq}" for eq in math_domain.core_theorems_and_equations) + "\n\n"
+                    f"Intuitive Breakthrough:\n{math_domain.intuitive_breakthrough}\n\n"
+                    f"Cognitive AI Reasoning Power:\n{math_domain.reasoning_power_for_ai}"
+                ),
+                "metadata": {"tags": math_domain.tags, "domain_id": math_domain.domain_id}
+            })
+        return records
+
     def export_all(self) -> Path:
         """Compiles and exports the complete curriculum into JSONL."""
         all_records = (
@@ -226,7 +251,8 @@ class CurriculumDatasetGenerator:
             self.generate_vocabulary_curriculum() +
             self.generate_statement_curriculum() +
             self.generate_history_curriculum() +
-            self.generate_philosophy_and_creativity_curriculum()
+            self.generate_philosophy_and_creativity_curriculum() +
+            self.generate_mathematics_curriculum()
         )
 
         output_file = self.output_dir / "paigen_language_curriculum.jsonl"

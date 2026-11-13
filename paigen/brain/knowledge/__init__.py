@@ -10,6 +10,10 @@ from paigen.brain.knowledge.philosophy_and_creativity import (
     GreatMind,
     HumanCreativeGenre,
 )
+from paigen.brain.knowledge.mathematics import (
+    MathematicsRegistry,
+    MathematicalDomain,
+)
 
 __all__ = [
     "HumanConditionRegistry",
@@ -21,4 +25,6 @@ __all__ = [
     "PhilosophicalSchool",
     "GreatMind",
     "HumanCreativeGenre",
+    "MathematicsRegistry",
+    "MathematicalDomain",
 ]
