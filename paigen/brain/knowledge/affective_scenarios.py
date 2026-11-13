@@ -129,3 +129,4 @@ class AffectiveScenarioRegistry:
     @classmethod
     def get_by_persona(cls, persona: str) -> List[AffectiveScenario]:
         return [s for s in AFFECTIVE_SCENARIOS if s.recommended_persona == persona]
+
