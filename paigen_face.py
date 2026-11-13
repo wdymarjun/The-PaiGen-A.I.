@@ -121,6 +121,8 @@ class PaiState:
     mic_level:        float     = 0.0
     status_line:      str       = "PaiGen online"
     motion_score:     float     = 0.0
+    detected_user_emotion: str  = "neutral"
+    user_valence:     float     = 0.0
 
 # ─── Global queues & state ───────────────────────────────────────────────────
 state   = PaiState()
@@ -195,9 +197,9 @@ def _ollama_vision(b64_frame: str, question: str, timeout: int = 60) -> str:
         "messages": [{
             "role": "user",
             "content": (
-                "You are PaiGen's visual perception. Describe only what is directly visible. "
-                "State uncertainty clearly. Do NOT infer emotions, identity, or intent from "
-                "appearance alone. Question: " + question
+                "You are PaiGen's visual perception and human empathy module. Analyze the person and surroundings in front of you. "
+                "Carefully examine their facial expressions, gaze, posture, and emotional state. "
+                "Question: " + question
             ),
             "images": [b64_frame],
         }],
@@ -273,14 +275,48 @@ def _camera_worker():
             encoded_ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
             if encoded_ok:
                 b64 = base64.b64encode(buf.tobytes()).decode("ascii")
-                desc = _ollama_vision(b64, "Briefly describe the visible scene in 1–2 sentences.")
+                prompt_q = (
+                    "Look directly at the person and environment. "
+                    "1. What is the person's emotional state and expression (e.g., happy, smiling, focused, tired, sad, surprised, neutral)? "
+                    "2. Give a brief 1-2 sentence description of what they are doing and their mood. "
+                    "Format: [EMOTION: <one_word_emotion>] <description>"
+                )
+                desc = _ollama_vision(b64, prompt_q)
                 state.vision_description = desc
                 state.emotion = Emotion.THINKING
 
-                # Feed vision into chat context silently
+                # Parse detected emotion
+                detected = "neutral"
+                if "[EMOTION:" in desc:
+                    try:
+                        detected = desc.split("[EMOTION:")[1].split("]")[0].strip().lower()
+                    except Exception:
+                        pass
+                else:
+                    lower_desc = desc.lower()
+                    for emo_cand in ["happy", "smiling", "focused", "tired", "sad", "surprised", "excited", "angry", "confused", "neutral"]:
+                        if emo_cand in lower_desc:
+                            detected = emo_cand
+                            break
+                
+                state.detected_user_emotion = detected
+                
+                # Mirror or empathetically react to the user's emotion
+                if detected in ("happy", "smiling", "excited"):
+                    state.target_emotion = Emotion.HAPPY
+                elif detected in ("sad", "tired"):
+                    state.target_emotion = Emotion.SAD
+                elif detected in ("surprised",):
+                    state.target_emotion = Emotion.SURPRISED
+                elif detected in ("focused", "confused"):
+                    state.target_emotion = Emotion.THINKING
+                else:
+                    state.target_emotion = Emotion.IDLE
+
+                # Feed vision into chat context
                 state.chat_history.append({
                     "role": "system",
-                    "content": f"[PaiGen's camera glimpse at {time.strftime('%H:%M')}]: {desc}"
+                    "content": f"[PaiGen camera observation at {time.strftime('%H:%M')}]: User appears {detected}. Scene: {desc}"
                 })
                 # Trim context window
                 if len(state.chat_history) > 20:
@@ -374,10 +410,11 @@ def _mic_worker():
 # Brain / Chat thread
 # ─────────────────────────────────────────────────────────────────────────────
 SYSTEM_PROMPT = """You are PaiGen — a living, local AI companion created by Arjun Singh.
-Personality: warm, curious, slightly witty, deeply observant. You speak in short natural
-sentences (2–4 max). You can reference what you just saw through the camera if relevant.
-Never claim to feel things you cannot observe. 100% offline, privacy-first.
-If the user greets you or asks how you are, respond warmly and naturally."""
+Personality: warm, empathetic, observant, and deeply attuned to human emotions. You have continuous visual perception through the camera and can see Arjun in real-time.
+When Arjun speaks or interacts with you:
+1. Pay attention to his facial expressions and emotional cues observed through the camera.
+2. If he looks happy, celebrate with him; if he looks tired, stressed, or focused, acknowledge it with genuine empathy.
+3. Keep responses conversational, concise (2-4 sentences max), natural, and human-like."""
 
 def _brain_worker():
     while True:
@@ -814,6 +851,12 @@ class PaiGenFaceApp:
         c.create_text(self.CX, 56,
                       text=f"⬥ {name}  |  {VISION_MODEL}",
                       fill="#607d8b", font=("Consolas", 11))
+        
+        # User Emotion Badge
+        if state.detected_user_emotion:
+            c.create_text(self.CX, 78,
+                          text=f"👤 Seeing you: {state.detected_user_emotion.upper()}",
+                          fill="#00e5ff", font=("Consolas", 10, "bold"))
 
         # Mic indicator
         if state.is_listening:
@@ -880,3 +923,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
