@@ -4,8 +4,7 @@ Architect: Arjun Singh
 
 Bridges deep human psychology, circadian energy curves, somatic body awareness,
 and non-verbal micro-cadence into PaiGen's conversational brain.
-Eliminates robotic platitudes and toxic positivity, replacing them with grounded,
-earned companionship and proactive biological pacing.
+Supports explicit user overrides over heuristic circadian phases.
 """
 
 from datetime import datetime
@@ -76,7 +75,31 @@ class HumanNatureAttuner:
     """Modulates dialogue and interaction rhythm based on human biological reality."""
 
     @classmethod
-    def get_current_circadian_phase(cls, current_hour: Optional[int] = None) -> CircadianPhase:
+    def get_current_circadian_phase(
+        cls,
+        current_hour: Optional[int] = None,
+        forced_phase_name: Optional[str] = None
+    ) -> CircadianPhase:
+        """
+        Returns active circadian phase. If `forced_phase_name` is specified by user override,
+        matches and applies the user's ground-truth setting.
+        """
+        if forced_phase_name:
+            f_lower = forced_phase_name.lower()
+            for phase in CIRCADIAN_PHASES:
+                if f_lower in phase.phase_name.lower() or f_lower in phase.phase_id.lower():
+                    return phase
+            # Custom user phase
+            return CircadianPhase(
+                phase_id="user_custom_phase",
+                phase_name=f"User Specified Phase: '{forced_phase_name}'",
+                typical_hours="Custom User Schedule",
+                biological_state=f"User-specified active state: {forced_phase_name}",
+                cognitive_capacity="User Defined",
+                recommended_tone="Attuned to user-specified schedule",
+                empathy_style="Direct user override"
+            )
+
         if current_hour is None:
             current_hour = datetime.now().hour
 
@@ -99,11 +122,11 @@ class HumanNatureAttuner:
         fatigue_score: float = 0.0,
         trust_level: float = 10.0,
         current_hour: Optional[int] = None,
+        forced_phase_name: Optional[str] = None,
     ) -> str:
         """Constructs rich behavioral constraints honoring human nature."""
-        phase = cls.get_current_circadian_phase(current_hour)
+        phase = cls.get_current_circadian_phase(current_hour, forced_phase_name=forced_phase_name)
 
-        # Anti-Robotic Rules
         anti_platitude_rules = (
             "1. NO TOXIC POSITIVITY: Never use empty motivational slogans like 'You can do it!' when Arjun is struggling. "
             "Acknowledge the weight of the obstacle first.\n"
@@ -114,7 +137,7 @@ class HumanNatureAttuner:
 
         prompt = f"""HUMAN NATURE ATTUNEMENT DIRECTIVES:
 - Companion Partner: {user_name} Singh
-- Current Biological Phase: {phase.phase_name}
+- Active Circadian Phase: {phase.phase_name}{" [USER OVERRIDE APPLIED]" if forced_phase_name else " [INFERRED FROM CLOCK]"}
 - Biological State: {phase.biological_state}
 - Recommended Interaction Cadence: {phase.recommended_tone}
 - Empathy Style: {phase.empathy_style}
