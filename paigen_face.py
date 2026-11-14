@@ -166,6 +166,7 @@ class PaiState:
     speaking:              bool       = False
     clap_detected:         bool       = False
     camera_enabled:        bool       = field(default_factory=lambda: os.getenv("PAIGEN_CAMERA_ENABLED", "0").lower() in ("1", "true", "yes"))
+    mic_enabled:           bool       = field(default_factory=lambda: os.getenv("PAIGEN_MIC_ENABLED", "0").lower() in ("1", "true", "yes"))
 
 state   = PaiState()
 tts_q   = queue.Queue()
@@ -188,6 +189,23 @@ def toggle_camera(enable: Optional[bool] = None) -> bool:
         state.detected_user_emotion = ""
         ui_msg_q.put("📷 Camera disabled (Hardware released)")
     return state.camera_enabled
+
+def toggle_mic(enable: Optional[bool] = None) -> bool:
+    """Toggles or sets microphone active state with immediate stream closure when disabled."""
+    if enable is None:
+        state.mic_enabled = not state.mic_enabled
+    else:
+        state.mic_enabled = enable
+
+    if state.mic_enabled:
+        state.status_line = "Mic ON (Listening for voice)"
+        ui_msg_q.put("🎤 Microphone enabled")
+    else:
+        state.is_listening = False
+        state.is_analyzing_voice = False
+        state.status_line = "Mic MUTED (Press 'M' to enable)"
+        ui_msg_q.put("🎤 Microphone muted")
+    return state.mic_enabled
 
 # ─── Live Desktop Action Feedback Handler ────────────────────────────────────
 def _on_desktop_action_status(msg: str):
@@ -384,9 +402,9 @@ def _acoustic_clap_worker():
         # Open continuous non-blocking stream
         with sd.InputStream(samplerate=sample_rate, channels=1, blocksize=block_size, dtype="float32") as stream:
             while True:
-                # Pause transient detection while PaiGen is speaking to prevent false triggers
-                if state.speaking:
-                    time.sleep(0.1)
+                # Do not process audio when microphone is disabled or PaiGen is speaking
+                if not state.mic_enabled or state.speaking:
+                    time.sleep(0.2)
                     continue
 
                 data, _overflow = stream.read(block_size)
@@ -450,6 +468,13 @@ def _mic_worker():
         state.status_line = "Mic ready"
 
     while True:
+        # Explicit opt-in: do not listen or stream audio if mic is muted
+        if not state.mic_enabled:
+            state.is_listening = False
+            state.is_analyzing_voice = False
+            time.sleep(0.2)
+            continue
+
         # Don't listen while PaiGen is speaking its own voice (avoids echo loop)
         if state.speaking:
             time.sleep(0.3)
@@ -919,12 +944,18 @@ class PaiGenApp:
         self.face  = NeonFace(self.canvas, self.CX, self.CY, face_r=160)
         self._chat_lines: List[str] = []
 
-        # Camera off/on switch bindings (hotkey and mouse click)
+        # Camera & Microphone off/on switch bindings (hotkey and mouse click)
         self.root.bind("<c>", lambda e: toggle_camera())
         self.root.bind("<C>", lambda e: toggle_camera())
+        self.root.bind("<m>", lambda e: toggle_mic())
+        self.root.bind("<M>", lambda e: toggle_mic())
         def _on_canvas_click(event):
+            # Camera button: (W - 220, 36) to (W - 16, 56)
             if (self.W - 220) <= event.x <= (self.W - 16) and 36 <= event.y <= 56:
                 toggle_camera()
+            # Mic button: (W - 220, 62) to (W - 16, 82)
+            elif (self.W - 220) <= event.x <= (self.W - 16) and 62 <= event.y <= 82:
+                toggle_mic()
         self.canvas.bind("<Button-1>", _on_canvas_click)
 
         self._start_threads()
@@ -998,7 +1029,11 @@ class PaiGenApp:
                           fill=_dim_color(rgb, 0.42), font=("Consolas", 9))
 
         # Mic indicator & voice analysis state
-        if state.is_listening:
+        if not state.mic_enabled:
+            c.create_oval(14, 14, 24, 24, fill="#546e7a", outline="")
+            c.create_text(28, 19, text="MIC MUTED", fill="#90a4ae",
+                          font=("Consolas", 8, "bold"), anchor="w")
+        elif state.is_listening:
             c.create_oval(14, 14, 24, 24, fill="#ff4081", outline="")
             c.create_text(28, 19, text="LISTENING...", fill="#ff4081",
                           font=("Consolas", 8, "bold"), anchor="w")
@@ -1028,6 +1063,15 @@ class PaiGenApp:
                             fill="#0d1117", outline=cam_col, width=1)
         c.create_text(self.W - 118, 46,
                       text=cam_txt, fill=cam_col,
+                      font=("Consolas", 7, "bold"))
+
+        # Mic badge & off switch button
+        mic_col = "#69ff47" if state.mic_enabled else "#ff5252"
+        mic_txt = "🎤 MIC: ON [Click / 'M' to mute]" if state.mic_enabled else "🎤 MIC: OFF [Click / 'M' to enable]"
+        c.create_rectangle(self.W - 220, 62, self.W - 16, 82,
+                            fill="#0d1117", outline=mic_col, width=1)
+        c.create_text(self.W - 118, 72,
+                      text=mic_txt, fill=mic_col,
                       font=("Consolas", 7, "bold"))
 
         # Vision strip
@@ -1061,7 +1105,10 @@ def main():
 
     def _greet():
         time.sleep(1.2)
-        speak("Hey! PaiGen is live. Camera is watching, mic is listening. What's on your mind?")
+        cam_status = "camera is active" if state.camera_enabled else "camera is off (press C to enable)"
+        mic_status = "mic is listening" if state.mic_enabled else "mic is muted (press M to enable)"
+        greeting = f"Hey! PaiGen is live. {cam_status.capitalize()}; {mic_status}. What's on your mind?"
+        speak(greeting)
         _set_emotion(Emotion.HAPPY)
     threading.Thread(target=_greet, daemon=True).start()
 

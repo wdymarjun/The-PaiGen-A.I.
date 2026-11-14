@@ -61,7 +61,27 @@ cd The-PaiGen-A.I
 pip install -r requirements.txt
 ```
 
+### 4. Install 100% Local Offline Voice Backends (Required for Voice Input)
+PaiGen never sends microphone audio to the cloud. Install at least one local speech-to-text backend:
+```bash
+pip install -r requirements-voice.txt
+```
+Available offline engines:
+- **OpenAI Whisper** (`openai-whisper`): High-accuracy offline STT. Downloads the local `base` model (~140MB) on first run to user cache.
+- **Vosk** (`vosk`): Ultra-lightweight offline acoustic recognizer. Downloads compact language models locally.
+- **PocketSphinx** (`pocketsphinx`): Embedded CMU Sphinx offline speech decoder requiring zero download on launch.
+
 *(Optional: For fine-tuning with LoRA on NVIDIA GPUs, install `pip install -r requirements-train.txt`)*
+
+---
+
+## Privacy & Safety Design
+
+PaiGen is engineered for complete personal safety and zero telemetry:
+- **Camera is Opt-In**: Disabled by default. Press `'C'` or click the top-right camera badge to enable/disable. Releases physical webcam handles immediately when disabled.
+- **Microphone is Opt-In**: Muted by default. Press `'M'` or click the top-right microphone badge to enable/disable. Stops all audio stream listening when muted.
+- **Destructive Desktop Protection**: Modifying actions (clicking screen coordinates, closing tabs/windows, pasting, saving, screenshots, WhatsApp messaging) are staged first. Say `"confirm"` to execute, or `"cancel"` to discard.
+- **No Cloud Voice Processing**: Google Speech API has been removed. All voice decoding is 100% local.
 
 ---
 

@@ -161,6 +161,25 @@ class TestFaceApp(unittest.TestCase):
         self.assertIn("Camera OFF", state.status_line)
         self.assertEqual(state.motion_score, 0.0)
 
+    def test_microphone_opt_in_and_toggle_switch(self):
+        """Verify microphone defaults to opt-in (muted) and provides instant stream toggle switch."""
+        from paigen_face import toggle_mic
+        state.mic_enabled = False
+        self.assertFalse(state.mic_enabled)
+
+        # Toggle ON
+        enabled = toggle_mic()
+        self.assertTrue(enabled)
+        self.assertTrue(state.mic_enabled)
+        self.assertIn("Mic ON", state.status_line)
+
+        # Toggle OFF (Muted)
+        disabled = toggle_mic(False)
+        self.assertFalse(disabled)
+        self.assertFalse(state.mic_enabled)
+        self.assertIn("Mic MUTED", state.status_line)
+        self.assertFalse(state.is_listening)
+
     def test_desktop_actions_universal_staging(self):
         """Verify clicking, closing windows, tabs, saving, pasting, and screenshots require confirmation."""
         DesktopController._STAGED_ACTION = None
