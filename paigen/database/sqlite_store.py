@@ -64,6 +64,7 @@ class SQLiteWALStore:
     def _connection(self) -> Generator[sqlite3.Connection, None, None]:
         conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON;")
         conn.execute("PRAGMA journal_mode=WAL;")
         conn.execute("PRAGMA synchronous=NORMAL;")
         try:
@@ -116,6 +117,7 @@ class SQLiteWALStore:
 
     def add_visual_observation(self, session_id: str, question: str, description: str) -> int:
         """Persist a text description only; camera images are never retained."""
+        self.get_or_create_session(session_id)
         with self._lock, self._connection() as conn:
             cursor = conn.cursor()
             cursor.execute(

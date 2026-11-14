@@ -8,7 +8,7 @@ to determine whether interventions and self-modifications had a positive or nega
 """
 
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Deque, Dict, List, Optional
 from pydantic import BaseModel, Field
 
@@ -61,8 +61,15 @@ class EmotionTracker:
             return 0.0
 
         current_val = self.smoothed_valence
-        # Compare with oldest frame in window or baseline
-        old_val = self.history[0].valence
+        cutoff = datetime.now() - timedelta(seconds=lookback_seconds)
+        # Select frames within lookback window
+        window_frames = [f for f in self.history if f.timestamp >= cutoff]
+        if not window_frames:
+            # Fallback to oldest available frame if window is empty
+            old_val = self.history[0].valence
+        else:
+            old_val = window_frames[0].valence
+
         delta = current_val - old_val
         return max(-1.0, min(1.0, delta))
 

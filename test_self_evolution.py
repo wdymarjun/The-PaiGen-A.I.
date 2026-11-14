@@ -33,12 +33,13 @@ def run_safe_evolution_demo():
     print(f"  -> Recommendation: {directive.recommended_adjustment}")
 
     print("\n[Step 2] Generating Non-Destructive Reviewable Patch...")
-    sample_proposed_code = '''# Proposed update for developer review
-def decide_intervention_policy(smoothed_valence, arousal, fatigue, intrusiveness):
-    if fatigue > 0.8:
-        return "TRIGGER_GENTLE_REST_NUDGE"
-    return "MAINTAIN_SUPPORTIVE_SILENCE"
-'''
+    homeostasis_file = repo_root / "paigen" / "core" / "homeostasis.py"
+    with open(homeostasis_file, "r", encoding="utf-8") as f:
+        existing_code = f.read()
+
+    # Safely tune fatigue threshold from 0.75 to 0.80 preserving file structure
+    sample_proposed_code = existing_code.replace("fatigue > 0.75", "fatigue > 0.80")
+
     success, message, patch_path = proposer.generate_reviewable_patch(
         target_relative_path="paigen/core/homeostasis.py",
         proposed_code=sample_proposed_code,

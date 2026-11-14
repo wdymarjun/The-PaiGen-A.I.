@@ -43,7 +43,7 @@ except ImportError:
 try:
     import pyautogui
     PYAUTOGUI_OK = True
-    pyautogui.FAILSAFE = False  # Avoid interruption during automated keyboard/mouse macros
+    pyautogui.FAILSAFE = True  # Safety: Slamming cursor to screen corner triggers FailSafeException
 except ImportError:
     PYAUTOGUI_OK = False
 
@@ -573,7 +573,12 @@ class DesktopController:
     @classmethod
     def _plan_action_with_llm(cls, command: str) -> Optional[str]:
         """Classifies complex or unparsed user phrasing into executable desktop actions."""
-        if len(command.split()) < 2:
+        # Safety gate: Only attempt LLM action classification if the user explicitly commanded an action
+        # on the computer or addressed PaiGen directly to prevent false triggers during ordinary speech.
+        cmd = command.lower()
+        has_intent = any(w in cmd for w in ("can you", "could you", "please", "paigen", "pai", "pc", "computer", "screen", "browser", "window"))
+        has_target = any(w in cmd for w in ("scroll", "zoom", "tab", "page", "window", "down", "up", "refresh", "fullscreen"))
+        if not (has_intent and has_target):
             return None
         payload = {
             "model": VISION_MODEL,
@@ -702,9 +707,7 @@ class DesktopController:
         clean_cmd = cmd.replace("porime", "prime")
 
         # ── 1. Live Screen Analysis ───────────────────────────────────────────
-        if any(w in clean_cmd for w in ("analyze my screen", "see my screen", "what is on my screen", 
-                                        "look at my screen", "read my screen", "what am i working on", 
-                                        "check my screen", "read screen", "examine screen", "look screen")):
+        if (re.search(r"\b(?:analyze|see|look\s+at|read|check|examine)\s+(?:my\s+|the\s+)?screen\b", clean_cmd) or clean_cmd in ("read screen", "screen analysis")) and not any(k in clean_cmd for k in ("screen time", "sunscreen", "screenplay")):
             if status_callback:
                 status_callback("🔍 [Vision]: Capturing and analyzing live screen...")
             return cls.analyze_live_screen(raw)
@@ -762,7 +765,7 @@ class DesktopController:
                 pyautogui.hotkey("ctrl", "shift", "tab")
                 return "Switched to previous tab."
 
-        if any(k in clean_cmd for k in ("reload page", "refresh page", "refresh")):
+        if any(k in clean_cmd for k in ("reload page", "refresh page", "reload web page", "refresh web page")) or clean_cmd == "refresh":
             if PYAUTOGUI_OK:
                 cls._focus_browser()
                 time.sleep(0.12)
@@ -807,7 +810,7 @@ class DesktopController:
                 pyautogui.hotkey("ctrl", "+")
                 return "Zoomed in."
 
-            if any(k in clean_cmd for k in ("zoom out", "make smaller", "shrink", "reduce zoom", "zoom out a bit")):
+            if any(k in clean_cmd for k in ("zoom out", "make smaller", "reduce zoom", "zoom out a bit", "shrink screen", "zoom smaller")) or clean_cmd == "shrink":
                 cls._focus_browser()
                 time.sleep(0.12)
                 pyautogui.hotkey("ctrl", "-")
@@ -875,20 +878,23 @@ class DesktopController:
             return f"Opening '{title.title()}' on {plat_raw.title()}."
 
         # ── 6. Autonomous WhatsApp Messaging ─────────────────────────────────
+        # Strictly matches imperative requests; excludes statements like 'I got a message from X'
         msg_match = re.search(
-            r"(?:send\s+(?:a\s+)?message\s+to|text|message)\s+([a-zA-Z0-9_\s]+?)\s+(?:saying|explaining|telling\s+(?:him|her|them)?|that|about)\s+(.+)",
+            r"^(?:(?:please\s+)?(?:send\s+(?:a\s+)?(?:whatsapp\s+)?message\s+to|send\s+(?:a\s+)?message\s+to|text|whatsapp)\s+([a-zA-Z0-9_]{2,20})\s+(?:saying|explaining|telling\s+(?:him|her|them)?|that)\s+(.+))$",
             raw,
             re.IGNORECASE
         )
         if msg_match:
             friend_name = msg_match.group(1).strip()
             explanation = msg_match.group(2).strip()
-            drafted_message = cls.draft_friend_message(friend_name, explanation)
-            cls.autonomous_whatsapp_send(friend_name, drafted_message, status_callback=status_callback)
-            return (
-                f"Taking control of screen: Navigating to WhatsApp, finding {friend_name}, "
-                f"typing: \"{drafted_message}\", and sending it for you now."
-            )
+            # Guard against misparsed prepositions
+            if friend_name.lower() not in ("from", "to", "him", "her", "them", "someone", "anyone", "the", "my", "a", "an", "this", "that"):
+                drafted_message = cls.draft_friend_message(friend_name, explanation)
+                cls.autonomous_whatsapp_send(friend_name, drafted_message, status_callback=status_callback)
+                return (
+                    f"Taking control of screen: Navigating to WhatsApp, finding {friend_name}, "
+                    f"typing: \"{drafted_message}\", and sending it for you now."
+                )
 
         # ── 7. Window Focus, Switching & Management ──────────────────────────
         switch_match = re.search(r"^(?:switch\s+to|focus|bring\s+up|show)\s+([a-zA-Z0-9_\-\.\s]+)$", clean_cmd)
@@ -1021,7 +1027,8 @@ class DesktopController:
                     return f"Attempted to open {app_alias}, but could not locate the executable."
 
         # ── 13. Direct Typing Automation ─────────────────────────────────────
-        type_match = re.search(r"^(?:type|write|paste)\s+(.+)$", raw, re.IGNORECASE)
+        # Only matches explicit typing/paste macros; excludes requests like 'write a python function'
+        type_match = re.search(r"^(?:please\s+)?(?:type\s+this(?:\s+text)?|type\s+out|type\s+exactly|paste\s+this|paste\s+text)\s*[:\s]\s*(.+)$", raw, re.IGNORECASE)
         if type_match and PYAUTOGUI_OK:
             text_to_type = type_match.group(1).strip()
             time.sleep(0.8)

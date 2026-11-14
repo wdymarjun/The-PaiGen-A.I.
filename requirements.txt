@@ -1,15 +1,22 @@
-# PaiGen AI Pinned Dependencies
-# Tested on Python 3.10 - 3.12 (Windows 11 / Linux x86_64)
+# PaiGen AI Core Runtime Dependencies
+# Tested on Python 3.10 - 3.13 (Windows 11 / Linux x86_64)
 
-# Core Runtime & Persistence
-pydantic==2.8.2
-requests==2.32.3
+# Core Brain & Data Storage
+pydantic>=2.8.0
+requests>=2.31.0
 
-# Local Fine-Tuning Stack (Requires NVIDIA GPU with CUDA 12.1 or 12.4)
-torch==2.4.0
-transformers==4.44.2
-datasets==2.21.0
-peft==0.12.0
-trl==0.9.6
-bitsandbytes==0.43.3
-accelerate==0.33.0
+# Computer Vision & Screen Perception
+opencv-python>=4.8.0
+Pillow>=10.0.0
+mss>=9.0.1
+
+# Desktop Automation & Macro Control
+pyautogui>=0.9.54
+pyperclip>=1.8.2
+
+# Acoustic & Voice Senses
+SpeechRecognition>=3.10.0
+PyAudio>=0.2.14
+pyttsx3>=2.90
+sounddevice>=0.4.6
+numpy>=1.24.0

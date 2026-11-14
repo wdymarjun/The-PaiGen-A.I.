@@ -161,7 +161,8 @@ class CognitiveBrain:
                 + "\nTreat these as past observations; ask the user to look again if current visual state matters.\n"
             )
 
-        prompt = f"""You are PaiGen AI, a 100% local, privacy-first companion created by {ctx.user_name} Singh.
+        creator_display = f"{ctx.user_name} Singh" if ctx.user_name.lower() == "arjun" else ctx.user_name
+        prompt = f"""You are PaiGen AI, a local, privacy-first companion created by {creator_display}.
 
 SYSTEM STATUS & ACTIVE TELEMETRY{override_status}:
 - User: {ctx.user_name} (Creator & Architect)

@@ -36,6 +36,13 @@ import urllib.error
 import webbrowser
 
 from paigen.senses.desktop_controller import DesktopController
+from paigen.brain.cognitive import CognitiveBrain, TelemetryContext
+from paigen.database.sqlite_store import SQLiteWALStore
+
+# Initialize unified SQLite persistence and Cognitive Brain
+db_store = SQLiteWALStore()
+brain = CognitiveBrain(model_name=CHAT_MODEL, ollama_base_url=OLLAMA_URL, db_store=db_store)
+telemetry = TelemetryContext(user_name="Arjun", session_id="face_gui_session")
 
 # ─── Optional dependencies ────────────────────────────────────────────────────
 try:
@@ -77,8 +84,6 @@ CLAP_SPIKE_RATIO   = float(os.getenv("PAIGEN_CLAP_SPIKE_RATIO", "6.5"))
 CLAP_MIN_GAP_S     = 0.05
 CLAP_MAX_GAP_S     = 0.40
 CLAP_MIN_RMS       = 0.015
-AUDIO_CACHE_DIR    = os.path.join(os.path.dirname(__file__), ".cache", "audio_cache")
-os.makedirs(AUDIO_CACHE_DIR, exist_ok=True)
 
 # ─── Emotions ─────────────────────────────────────────────────────────────────
 class Emotion(Enum):
@@ -222,15 +227,16 @@ def speak(text: str):
         tts_q.put(text)
     ui_msg_q.put(f"🤖 {text}")
 
+history_lock = threading.Lock()
+
 def _set_emotion(em: Emotion, force: bool = False):
-    if em == state.emotion and state.target_emotion == em:
+    if em == state.target_emotion and em == state.emotion:
         return
-    if force:
+    state.target_emotion = em
+    if force or em == Emotion.SLEEPING:
         state.emotion = em
-        state.target_emotion = em
         state.transition_t = 1.0
     else:
-        state.target_emotion = em
         if state.transition_t >= 0.95:
             state.transition_t = 0.0
 
@@ -338,12 +344,6 @@ def _camera_worker():
                 }
                 _set_emotion(em_map.get(detected, Emotion.IDLE))
 
-                state.chat_history.append({
-                    "role": "system",
-                    "content": f"[Camera at {time.strftime('%H:%M')}] You appear {detected}. {desc}"
-                })
-                state.chat_history = state.chat_history[-20:]
-
         # Auto-sleep
         if (now - state.last_interaction > SLEEP_AFTER
                 and state.emotion not in (Emotion.SLEEPING, Emotion.SPEAKING)):
@@ -361,8 +361,8 @@ def _acoustic_clap_worker():
     sample_rate = 44100
     block_ms = 40
     block_size = int(sample_rate * block_ms / 1000)
-    noise_floor = 1e-4
-    alpha = 0.990
+    noise_floor = 0.003
+    alpha = 0.985
     first_clap_time: Optional[float] = None
     spike_armed = True
     last_double_trigger = 0.0
@@ -379,11 +379,10 @@ def _acoustic_clap_worker():
                 data, _overflow = stream.read(block_size)
                 rms = float(np.sqrt(np.mean(data**2)))
 
-                # Update adaptive noise floor
-                if rms < noise_floor * 2.2:
-                    noise_floor = noise_floor * alpha + rms * (1.0 - alpha)
-
                 threshold = max(CLAP_MIN_RMS, noise_floor * CLAP_SPIKE_RATIO)
+                # Dynamic ambient noise floor tracking (EMA over quiet periods)
+                if rms < threshold:
+                    noise_floor = noise_floor * alpha + rms * (1.0 - alpha)
                 now = time.time()
 
                 if spike_armed and rms >= threshold:
@@ -523,26 +522,31 @@ def _brain_worker():
             chat_q.task_done()
             continue
 
-        # 2. Contextual LLM Reasoning with screen & camera observations
-        msgs = [{"role": "system", "content": SYS}]
-        
+        # 2. Contextual LLM Reasoning with screen & camera observations via unified CognitiveBrain
+        if state.detected_user_emotion in ("happy", "smiling", "excited"):
+            telemetry.inferred_valence = 0.6
+            telemetry.inferred_fatigue = 0.1
+        elif state.detected_user_emotion in ("tired", "sad"):
+            telemetry.inferred_valence = -0.4
+            telemetry.inferred_fatigue = 0.8
+        elif state.detected_user_emotion in ("focused", "thinking"):
+            telemetry.is_deep_focus = True
+
         # Inject live screen glimpse if relevant to question
         if any(w in text.lower() for w in ("screen", "code", "file", "window", "reading", "browser", "document", "error", "bug")):
             state.status_line = "Analyzing live screen..."
             screen_analysis = DesktopController.analyze_live_screen(text)
-            msgs.append({"role": "system", "content": f"[Live Screen Observation]: {screen_analysis}"})
+            text_augmented = f"[Live Screen Observation]: {screen_analysis}\n\nUser Question: {text}"
+        else:
+            text_augmented = text
 
-        if state.vision_description:
-            msgs.append({"role": "system", "content": f"[Recent Camera Glimpse]: {state.vision_description}"})
-
-        msgs += state.chat_history[-8:]
-        msgs.append({"role": "user", "content": text})
-        reply = _ollama_chat(msgs)
-        state.chat_history += [
-            {"role": "user",      "content": text},
-            {"role": "assistant", "content": reply},
-        ]
-        state.chat_history = state.chat_history[-20:]
+        reply = brain.query(text_augmented, ctx=telemetry)
+        with history_lock:
+            state.chat_history += [
+                {"role": "user",      "content": text},
+                {"role": "assistant", "content": reply},
+            ]
+            state.chat_history = state.chat_history[-20:]
 
         low = reply.lower()
         if any(w in low for w in ("!","amazing","love","wonderful","yes","great")):
@@ -629,6 +633,9 @@ class NeonFace:
                 int(b1 + (b2-b1)*t3),
             )
 
+            if self._lerp_t >= 1.0:
+                state.emotion = state.target_emotion
+
         # Blink
         em = state.emotion
         if em == Emotion.SLEEPING:
@@ -709,16 +716,6 @@ class NeonFace:
             self.c.create_arc(x0-rd, y0-rd, x1+rd, y1+rd,
                               start=start, extent=extent, style=style,
                               outline=col, width=lw + rd*0.25)
-
-    def _neon_line(self, points, lw, rgb):
-        for rd, bf in self.GLOW_LAYERS:
-            col = _dim_color(rgb, bf)
-            shifted = []
-            for i, v in enumerate(points):
-                shifted.append(v + (rd if i % 2 == 0 else rd))
-            # draw twice — shift x and y for the glow halo
-            flat = points
-            self.c.create_line(flat, fill=col, width=lw + rd*0.4, smooth=True)
 
     def _neon_dot(self, cx, cy, r, rgb):
         for rd, bf in self.GLOW_LAYERS:
