@@ -8,6 +8,7 @@ automated unit test verification, and explicit developer approval.
 Prevents path traversal and validates targets stay strictly inside repo bounds.
 """
 
+import ast
 import difflib
 import logging
 from datetime import datetime
@@ -58,9 +59,39 @@ class PatchProposalEngine:
         with open(target_file, "r", encoding="utf-8") as f:
             original_lines = [line.rstrip("\r\n") for line in f]
 
-        proposed_lines = proposed_code.splitlines()
+        # 3. Intelligent AST-based Snippet Splicing and Safety Guards
+        # Prevents small function snippets from accidentally deleting entire modules
+        try:
+            tree_orig = ast.parse("\n".join(original_lines))
+            tree_prop = ast.parse(proposed_code)
 
-        # 3. Generate unified diff
+            orig_defs = {n.name: n for n in tree_orig.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))}
+            prop_defs = {n.name: n for n in tree_prop.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))}
+
+            # Case A: Proposed code is a targeted function/class snippet
+            if len(prop_defs) > 0 and len(prop_defs) < len(orig_defs):
+                spliced_lines = list(original_lines)
+                matching_nodes = sorted(
+                    [n for n in tree_orig.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and n.name in prop_defs],
+                    key=lambda x: x.lineno,
+                    reverse=True
+                )
+                for node in matching_nodes:
+                    snip_node = prop_defs[node.name]
+                    snip_lines = proposed_code.splitlines()[snip_node.lineno - 1 : snip_node.end_lineno]
+                    spliced_lines = spliced_lines[:node.lineno - 1] + snip_lines + spliced_lines[node.end_lineno:]
+                proposed_lines = spliced_lines
+            else:
+                proposed_lines = proposed_code.splitlines()
+                # Case B: Safety guard against accidental full-module wipeout
+                if len(original_lines) > 20 and len(proposed_lines) < len(original_lines) * 0.6:
+                    missing_classes = set(orig_defs.keys()) - set(prop_defs.keys())
+                    if missing_classes:
+                        return False, f"Safety Rejection: Proposed patch drops critical definitions {missing_classes} and deletes >40% of target file.", None
+        except Exception:
+            proposed_lines = proposed_code.splitlines()
+
+        # 4. Generate unified diff
         diff_lines = list(difflib.unified_diff(
             original_lines,
             proposed_lines,

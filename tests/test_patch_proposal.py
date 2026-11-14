@@ -73,6 +73,43 @@ class TestPatchProposalEngine(unittest.TestCase):
         self.assertIn("syntax validation", msg.lower())
         self.assertIsNone(patch_path)
 
+    def test_snippet_splicing_preserves_other_functions(self):
+        multi_func_file = self.repo_root / "multi_module.py"
+        with open(multi_func_file, "w", encoding="utf-8") as f:
+            f.write("def func_a():\n    return 'alpha'\n\ndef func_b():\n    return 'beta'\n")
+
+        # Propose only an update for func_b
+        snippet = "def func_b():\n    return 'beta_updated'\n"
+        success, msg, patch_path = self.engine.generate_reviewable_patch(
+            target_relative_path="multi_module.py",
+            proposed_code=snippet,
+            rationale="Update func_b only"
+        )
+        self.assertTrue(success)
+        self.assertIsNotNone(patch_path)
+        with open(patch_path, "r", encoding="utf-8") as f:
+            patch_text = f.read()
+        # func_a must NOT be deleted in the patch
+        self.assertNotIn("-def func_a", patch_text)
+        self.assertIn("beta_updated", patch_text)
+
+    def test_safety_guard_rejects_module_wipeout(self):
+        large_module = self.repo_root / "large_module.py"
+        content = "class CoreDriver:\n    pass\n\n" + "\n".join([f"def helper_{i}():\n    return {i}" for i in range(25)]) + "\n"
+        with open(large_module, "w", encoding="utf-8") as f:
+            f.write(content)
+
+        # Propose replacing it with 2 lines that drop CoreDriver entirely
+        destructive_proposal = "x = 1\ny = 2\n"
+        success, msg, patch_path = self.engine.generate_reviewable_patch(
+            target_relative_path="large_module.py",
+            proposed_code=destructive_proposal,
+            rationale="Accidental destructive replacement"
+        )
+        self.assertFalse(success)
+        self.assertIn("safety rejection", msg.lower())
+        self.assertIsNone(patch_path)
+
 
 if __name__ == "__main__":
     unittest.main()
