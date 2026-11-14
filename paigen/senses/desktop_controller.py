@@ -54,7 +54,33 @@ VISION_MODEL = os.getenv("PAIGEN_VISION_MODEL", "qwen2.5vl:3b")
 class DesktopController:
     """Provides complete computer vision, window management, and autonomous execution for PaiGen."""
 
+    _STAGED_ACTION: Optional[Dict[str, Any]] = None
     _STAGED_WHATSAPP_ACTION: Optional[Dict[str, str]] = None
+    REQUIRE_CONFIRMATION: bool = os.getenv("PAIGEN_CONFIRM_ACTIONS", "true").lower() in ("1", "true", "yes")
+
+    @classmethod
+    def stage_action(
+        cls,
+        description: str,
+        action_type: str,
+        execution_callable: Callable,
+        args: tuple = (),
+        kwargs: Optional[dict] = None,
+        status_callback: Optional[Callable[[str], None]] = None
+    ) -> str:
+        """
+        Stages a desktop action for explicit user confirmation before executing any keystrokes or mouse events.
+        """
+        cls._STAGED_ACTION = {
+            "type": action_type,
+            "description": description,
+            "callable": execution_callable,
+            "args": args,
+            "kwargs": kwargs or {},
+        }
+        if status_callback:
+            status_callback(f"⚠️ [Staged for Confirmation]: {description}")
+        return f"Staged action: {description}. Please say 'confirm' to execute, or 'cancel' to discard."
 
     COMMON_APPS = {
         "notepad": "notepad.exe",
@@ -709,17 +735,31 @@ class DesktopController:
         clean_cmd = cmd.replace("porime", "prime")
 
         # ── 0. Confirmation / Cancellation of Staged Safety Actions ───────────
-        if clean_cmd in ("confirm send", "confirm", "send it", "yes send it", "dispatch", "go ahead"):
+        if clean_cmd in ("confirm send", "confirm", "send it", "yes send it", "dispatch", "go ahead", "proceed", "yes", "execute", "confirm action", "do it"):
+            if cls._STAGED_ACTION:
+                staged = cls._STAGED_ACTION
+                cls._STAGED_ACTION = None
+                cls._STAGED_WHATSAPP_ACTION = None
+                fn = staged["callable"]
+                res = fn(*staged.get("args", ()), **staged.get("kwargs", {}))
+                if staged.get("type") == "whatsapp":
+                    return f"Confirmed. Sending message to {staged.get('contact', 'contact')}: \"{staged.get('message', '')}\"."
+                return f"Confirmed. Executed: {staged['description']}. {res if res else ''}".strip()
+
             if cls._STAGED_WHATSAPP_ACTION:
                 staged = cls._STAGED_WHATSAPP_ACTION
                 cls._STAGED_WHATSAPP_ACTION = None
                 cls.autonomous_whatsapp_send(staged["contact"], staged["message"], status_callback=status_callback)
                 return f"Confirmed. Sending message to {staged['contact']}: \"{staged['message']}\"."
 
-        if clean_cmd in ("cancel send", "cancel message", "discard", "don't send", "dont send", "cancel"):
-            if cls._STAGED_WHATSAPP_ACTION:
+        if clean_cmd in ("cancel send", "cancel message", "discard", "don't send", "dont send", "cancel", "abort", "cancel action", "don't", "dont", "stop"):
+            if cls._STAGED_ACTION or cls._STAGED_WHATSAPP_ACTION:
+                is_msg = bool(cls._STAGED_WHATSAPP_ACTION or (cls._STAGED_ACTION and cls._STAGED_ACTION.get("type") == "whatsapp"))
+                cls._STAGED_ACTION = None
                 cls._STAGED_WHATSAPP_ACTION = None
-                return "Cancelled staged message dispatch."
+                if is_msg:
+                    return "Cancelled staged message dispatch."
+                return "Cancelled staged action."
 
         # ── 1. Live Screen Analysis ───────────────────────────────────────────
         if (re.search(r"\b(?:analyze|see|look\s+at|read|check|examine)\s+(?:my\s+|the\s+)?screen\b", clean_cmd) or clean_cmd in ("read screen", "screen analysis")) and not any(k in clean_cmd for k in ("screen time", "sunscreen", "screenplay")):
@@ -734,11 +774,14 @@ class DesktopController:
             target_desc = click_match.group(2).strip()
             # Avoid matching generic tab commands
             if not any(k in target_desc for k in ("tab", "window", "down", "up")):
-                if status_callback:
-                    status_callback(f"🎯 [Vision]: Locating '{target_desc}' on screen to click...")
-                res = cls.visual_click(target_desc, click_type=click_type)
-                if res:
-                    return res
+                desc = f"{click_type.title()} click on '{target_desc}'"
+                def _do_click():
+                    if status_callback:
+                        status_callback(f"🎯 [Vision]: Locating '{target_desc}' on screen to click...")
+                    return cls.visual_click(target_desc, click_type=click_type) or f"Clicked on {target_desc}."
+                if cls.REQUIRE_CONFIRMATION:
+                    return cls.stage_action(desc, "click", _do_click, status_callback=status_callback)
+                return _do_click()
 
         # ── 3. Browser Tab Controls ──────────────────────────────────────────
         if any(k in clean_cmd for k in ("new tab", "open tab", "opening tab", "open tabs", "opening tabs", "create tab", "another tab")) or re.search(r"\b(?:open|create|add|new)\s+(?:a\s+)?tabs?\b", clean_cmd):
@@ -752,12 +795,16 @@ class DesktopController:
 
         if any(k in clean_cmd for k in ("close tab", "close this tab", "shut tab", "close current tab", "exit tab", "close the tab", "shut the tab")) or re.search(r"\b(?:close|shut|kill|exit)\s+(?:the\s+|this\s+|current\s+)?tab\b", clean_cmd):
             if PYAUTOGUI_OK:
-                cls._focus_browser()
-                time.sleep(0.12)
-                pyautogui.hotkey("ctrl", "w")
-                if status_callback:
-                    status_callback("🌐 [Browser]: Closed current tab.")
-                return "Closed the current tab."
+                def _do_close_tab():
+                    cls._focus_browser()
+                    time.sleep(0.12)
+                    pyautogui.hotkey("ctrl", "w")
+                    if status_callback:
+                        status_callback("🌐 [Browser]: Closed current tab.")
+                    return "Closed current tab."
+                if cls.REQUIRE_CONFIRMATION:
+                    return cls.stage_action("Close active browser tab (Ctrl+W)", "close_tab", _do_close_tab, status_callback=status_callback)
+                return _do_close_tab()
 
         if any(k in clean_cmd for k in ("reopen tab", "restore tab", "undo close tab")):
             if PYAUTOGUI_OK:
@@ -910,6 +957,13 @@ class DesktopController:
                     "contact": friend_name,
                     "message": drafted_message
                 }
+                cls._STAGED_ACTION = {
+                    "type": "whatsapp",
+                    "description": f"Send WhatsApp message to {friend_name}: \"{drafted_message}\"",
+                    "callable": lambda: cls.autonomous_whatsapp_send(friend_name, drafted_message, status_callback=status_callback),
+                    "contact": friend_name,
+                    "message": drafted_message
+                }
                 if status_callback:
                     status_callback(f"⚠️ [Staged for Confirmation]: WhatsApp message for {friend_name}.")
                 return (
@@ -949,8 +1003,12 @@ class DesktopController:
 
         if any(w in clean_cmd for w in ("close window", "close this window", "close app", "exit window", "exit app")):
             if PYAUTOGUI_OK:
-                pyautogui.hotkey("alt", "f4")
-                return "Closed the window."
+                def _do_close_win():
+                    pyautogui.hotkey("alt", "f4")
+                    return "Closed the window."
+                if cls.REQUIRE_CONFIRMATION:
+                    return cls.stage_action("Close active window (Alt+F4)", "close_window", _do_close_win, status_callback=status_callback)
+                return _do_close_win()
 
         # ── 8. Productivity & Clipboard Shortcuts ────────────────────────────
         if PYAUTOGUI_OK:
@@ -959,8 +1017,12 @@ class DesktopController:
                 return "Copied to clipboard."
 
             if clean_cmd in ("paste", "paste this", "paste text"):
-                pyautogui.hotkey("ctrl", "v")
-                return "Pasted from clipboard."
+                def _do_paste():
+                    pyautogui.hotkey("ctrl", "v")
+                    return "Pasted from clipboard."
+                if cls.REQUIRE_CONFIRMATION:
+                    return cls.stage_action("Paste clipboard contents (Ctrl+V)", "paste", _do_paste, status_callback=status_callback)
+                return _do_paste()
 
             if clean_cmd in ("select all", "select everything"):
                 pyautogui.hotkey("ctrl", "a")
@@ -975,8 +1037,12 @@ class DesktopController:
                 return "Redone."
 
             if clean_cmd in ("save", "save file", "save this"):
-                pyautogui.hotkey("ctrl", "s")
-                return "Saved file."
+                def _do_save():
+                    pyautogui.hotkey("ctrl", "s")
+                    return "Saved file."
+                if cls.REQUIRE_CONFIRMATION:
+                    return cls.stage_action("Save current file (Ctrl+S)", "save", _do_save, status_callback=status_callback)
+                return _do_save()
 
             if clean_cmd in ("find on page", "search on page", "find in page"):
                 pyautogui.hotkey("ctrl", "f")
@@ -1015,11 +1081,15 @@ class DesktopController:
                 return "Switched window."
 
             if any(w in clean_cmd for w in ("take screenshot", "capture screen", "save screenshot")):
-                desktop_path = os.path.join(os.path.expanduser("~"), "Desktop", f"screenshot_{int(time.time())}.png")
-                cls._attach_input_desktop()
-                img = ImageGrab.grab()
-                img.save(desktop_path)
-                return f"Captured and saved screenshot to your Desktop: {os.path.basename(desktop_path)}."
+                def _do_screenshot():
+                    desktop_path = os.path.join(os.path.expanduser("~"), "Desktop", f"screenshot_{int(time.time())}.png")
+                    cls._attach_input_desktop()
+                    img = ImageGrab.grab()
+                    img.save(desktop_path)
+                    return f"Captured and saved screenshot to your Desktop: {os.path.basename(desktop_path)}."
+                if cls.REQUIRE_CONFIRMATION:
+                    return cls.stage_action("Capture screen and save screenshot PNG to Desktop", "screenshot", _do_screenshot, status_callback=status_callback)
+                return _do_screenshot()
 
         # ── 10. General Web Search & Google ──────────────────────────────────
         search_match = re.search(r"^(?:please\s+)?(?:search for|search|google)\s+(.+)$", clean_cmd)
@@ -1052,14 +1122,18 @@ class DesktopController:
         type_match = re.search(r"^(?:please\s+)?(?:type\s+this(?:\s+text)?|type\s+out|type\s+exactly|paste\s+this|paste\s+text)\s*[:\s]\s*(.+)$", raw, re.IGNORECASE)
         if type_match and PYAUTOGUI_OK:
             text_to_type = type_match.group(1).strip()
-            time.sleep(0.8)
-            try:
-                import pyperclip
-                pyperclip.copy(text_to_type)
-                pyautogui.hotkey("ctrl", "v")
-                return f"Typed: \"{text_to_type}\""
-            except Exception as e:
-                return f"Could not type text: {e}"
+            def _do_typing():
+                time.sleep(0.8)
+                try:
+                    import pyperclip
+                    pyperclip.copy(text_to_type)
+                    pyautogui.hotkey("ctrl", "v")
+                    return f"Typed: \"{text_to_type}\""
+                except Exception as e:
+                    return f"Could not type text: {e}"
+            if cls.REQUIRE_CONFIRMATION:
+                return cls.stage_action(f"Type and paste text: \"{text_to_type}\"", "type", _do_typing, status_callback=status_callback)
+            return _do_typing()
 
         # ── 14. Fuzzy Application Open Fallback ──────────────────────────────
         open_match = re.search(r"^(?:please\s+)?(?:open|launch|start|run)\s+([a-zA-Z0-9_\-\.\s]+)$", clean_cmd)

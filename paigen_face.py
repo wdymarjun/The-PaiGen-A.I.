@@ -165,11 +165,29 @@ class PaiState:
     detected_user_emotion: str        = ""
     speaking:              bool       = False
     clap_detected:         bool       = False
+    camera_enabled:        bool       = field(default_factory=lambda: os.getenv("PAIGEN_CAMERA_ENABLED", "0").lower() in ("1", "true", "yes"))
 
 state   = PaiState()
 tts_q   = queue.Queue()
 chat_q  = queue.Queue()
 ui_msg_q= queue.Queue()
+
+def toggle_camera(enable: Optional[bool] = None) -> bool:
+    """Toggles or sets camera active state with immediate hardware release when disabled."""
+    if enable is None:
+        state.camera_enabled = not state.camera_enabled
+    else:
+        state.camera_enabled = enable
+
+    if state.camera_enabled:
+        state.status_line = "Camera ON (Active)"
+        ui_msg_q.put("📷 Camera enabled")
+    else:
+        state.status_line = "Camera OFF (Muted - Press 'C' to enable)"
+        state.motion_score = 0.0
+        state.detected_user_emotion = ""
+        ui_msg_q.put("📷 Camera disabled (Hardware released)")
+    return state.camera_enabled
 
 # ─── Live Desktop Action Feedback Handler ────────────────────────────────────
 def _on_desktop_action_status(msg: str):
@@ -254,22 +272,37 @@ def _ollama_vision(b64: str, question: str, timeout: int = 60) -> str:
 def _camera_worker():
     if not CV2_OK:
         return
-    cap = cv2.VideoCapture(CAM_INDEX, cv2.CAP_DSHOW)
-    if not cap.isOpened():
-        cap = cv2.VideoCapture(CAM_INDEX)
-    if not cap.isOpened():
-        state.status_line = "No camera"
-        return
-    state.status_line = "Camera online"
+    cap = None
     prev_gray = None
     while True:
+        # 1. Immediate off switch & hardware release
+        if not state.camera_enabled:
+            if cap is not None and cap.isOpened():
+                cap.release()
+                cap = None
+                prev_gray = None
+            time.sleep(0.2)
+            continue
+
+        # 2. Acquire camera handle when enabled
+        if cap is None or not cap.isOpened():
+            cap = cv2.VideoCapture(CAM_INDEX, cv2.CAP_DSHOW)
+            if not cap.isOpened():
+                cap = cv2.VideoCapture(CAM_INDEX)
+            if not cap.isOpened():
+                state.status_line = "No camera"
+                time.sleep(1.0)
+                continue
+            state.status_line = "Camera online"
+
         ok, frame = cap.read()
         if not ok or frame is None:
-            time.sleep(0.5); continue
+            time.sleep(0.2); continue
 
         # Motion
         small = cv2.resize(frame, (160, 120))
         gray  = cv2.GaussianBlur(cv2.cvtColor(small, cv2.COLOR_BGR2GRAY), (9,9), 0)
+        motion = 0.0
         if prev_gray is not None:
             motion = float(cv2.absdiff(prev_gray, gray).mean())
             state.motion_score = motion
@@ -329,7 +362,8 @@ def _camera_worker():
             _set_emotion(Emotion.SLEEPING)
 
         time.sleep(0.07)
-    cap.release()
+    if cap is not None and cap.isOpened():
+        cap.release()
 
 # ─── Acoustic Transient & Double-Clap Detector Thread (Jarvis Engine) ───────
 def _acoustic_clap_worker():
@@ -445,7 +479,8 @@ def _mic_worker():
         text = None
         voice_backend = os.getenv("PAIGEN_VOICE_BACKEND", "auto").lower()
 
-        # 1. Attempt local offline speech-to-text (Whisper / Vosk)
+        # 1. Local offline speech-to-text ONLY (Whisper / Vosk / Sphinx)
+        # STRICT PRIVACY GUARANTEE: Zero cloud, zero audio leaves the machine.
         if voice_backend in ("whisper", "local", "auto"):
             try:
                 text = r.recognize_whisper(audio, model="base")
@@ -458,20 +493,19 @@ def _mic_worker():
             except Exception:
                 pass
 
-        # 2. Fallback to web recognizer if local model is uninstalled and offline_only is not enforced
-        if not text and voice_backend != "offline_only":
+        if not text and voice_backend in ("sphinx", "auto"):
             try:
-                text = r.recognize_google(audio, language="en-IN")
+                text = r.recognize_sphinx(audio)
             except Exception:
-                try:
-                    text = r.recognize_google(audio, language="en-US")
-                except Exception:
-                    text = None
+                pass
 
         state.is_analyzing_voice = False
 
         if not text or len(text.strip()) == 0:
-            state.status_line = "PaiGen online"
+            if not text:
+                state.status_line = "No local offline STT model found (whisper/vosk). Use text input."
+            else:
+                state.status_line = "PaiGen online"
             if state.emotion not in (Emotion.SLEEPING, Emotion.SPEAKING):
                 _set_emotion(Emotion.IDLE)
             continue
@@ -884,6 +918,15 @@ class PaiGenApp:
 
         self.face  = NeonFace(self.canvas, self.CX, self.CY, face_r=160)
         self._chat_lines: List[str] = []
+
+        # Camera off/on switch bindings (hotkey and mouse click)
+        self.root.bind("<c>", lambda e: toggle_camera())
+        self.root.bind("<C>", lambda e: toggle_camera())
+        def _on_canvas_click(event):
+            if (self.W - 220) <= event.x <= (self.W - 16) and 36 <= event.y <= 56:
+                toggle_camera()
+        self.canvas.bind("<Button-1>", _on_canvas_click)
+
         self._start_threads()
         self._loop()
 
@@ -977,6 +1020,15 @@ class PaiGenApp:
             c.create_rectangle(self.W - mbar_w - 16, 14,
                                 self.W - 16 - int(mbar_w*(1-mx)), 24,
                                 fill=_dim_color(rgb, 0.7), outline="")
+
+        # Camera badge & off switch button
+        cam_col = "#69ff47" if state.camera_enabled else "#ff5252"
+        cam_txt = "📷 CAM: ON [Click / 'C' to mute]" if state.camera_enabled else "📷 CAM: OFF [Click / 'C' to enable]"
+        c.create_rectangle(self.W - 220, 36, self.W - 16, 56,
+                            fill="#0d1117", outline=cam_col, width=1)
+        c.create_text(self.W - 118, 46,
+                      text=cam_txt, fill=cam_col,
+                      font=("Consolas", 7, "bold"))
 
         # Vision strip
         if state.vision_description:

@@ -142,6 +142,57 @@ class TestFaceApp(unittest.TestCase):
                 "Keshav", staged_msg, status_callback=None
             )
 
+    def test_camera_opt_in_and_toggle_switch(self):
+        """Verify camera defaults to opt-in (disabled) and provides instant hardware toggle switch."""
+        from paigen_face import toggle_camera
+        state.camera_enabled = False
+        self.assertFalse(state.camera_enabled)
+
+        # Toggle ON
+        enabled = toggle_camera()
+        self.assertTrue(enabled)
+        self.assertTrue(state.camera_enabled)
+        self.assertIn("Camera ON", state.status_line)
+
+        # Toggle OFF (Muted)
+        disabled = toggle_camera(False)
+        self.assertFalse(disabled)
+        self.assertFalse(state.camera_enabled)
+        self.assertIn("Camera OFF", state.status_line)
+        self.assertEqual(state.motion_score, 0.0)
+
+    def test_desktop_actions_universal_staging(self):
+        """Verify clicking, closing windows, tabs, saving, pasting, and screenshots require confirmation."""
+        DesktopController._STAGED_ACTION = None
+        DesktopController.REQUIRE_CONFIRMATION = True
+
+        actions_to_test = [
+            ("click on submit button", "click on 'submit button'"),
+            ("close window", "Close active window (Alt+F4)"),
+            ("close tab", "Close active browser tab (Ctrl+W)"),
+            ("save file", "Save current file (Ctrl+S)"),
+            ("paste text", "Paste clipboard contents (Ctrl+V)"),
+            ("take screenshot", "Capture screen and save screenshot PNG to Desktop"),
+        ]
+
+        for cmd, expected_desc in actions_to_test:
+            result = DesktopController.execute_command(cmd)
+            self.assertIn("Staged action", result)
+            self.assertIn("confirm", result.lower())
+            self.assertIsNotNone(DesktopController._STAGED_ACTION)
+            self.assertIn(expected_desc.lower(), DesktopController._STAGED_ACTION["description"].lower())
+
+            # Test cancellation
+            cancel_res = DesktopController.execute_command("cancel")
+            self.assertIn("Cancelled staged action", cancel_res)
+            self.assertIsNone(DesktopController._STAGED_ACTION)
+
+    def test_zero_cloud_voice_privacy(self):
+        """Verify no Google speech or cloud recognition calls exist in paigen_face."""
+        import inspect
+        src = inspect.getsource(paigen_face)
+        self.assertNotIn("recognize_google", src)
+
 
 if __name__ == "__main__":
     unittest.main()

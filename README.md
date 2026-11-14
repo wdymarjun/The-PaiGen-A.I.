@@ -15,21 +15,26 @@ PaiGen AI is a local, privacy-first living companion with an animated neon face,
    - Sleeping energy-saving mode with floating `zzz` particle animations.
 
 2. **Perception & Camera Empathy**:
-   - Live single-frame camera perception reading user expression and energy level.
-   - **Privacy Guarantee**: Visual frames and screen captures exist only in volatile RAM buffers. No video or screen captures are ever recorded or saved to disk.
+   - **Explicit Opt-In & Hardware Off-Switch**: Camera starts disabled by default for absolute privacy. A single press of `'C'` or a click on the on-screen badge instantly toggles the camera and releases hardware camera handles immediately.
+   - **Privacy Guarantee**: Visual frames and screen captures exist only in volatile RAM buffers. No video or audio is ever recorded, stored on disk, or transmitted to any cloud servers.
 
-3. **ChatGPT / Operator Desktop Control**:
+3. **100% Local Voice Privacy (Zero Cloud)**:
+   - Microphone processing runs strictly offline using local Whisper, Vosk, or Sphinx engines.
+   - Zero audio data is ever sent to Google or third-party cloud APIs.
+
+4. **ChatGPT / Operator Desktop Control with Mandatory Safety Confirmation**:
+   - **Universal Confirmation Staging**: Modifying or disruptive desktop actions (clicking screen coordinates, closing tabs or windows, pasting clipboard content, saving files, capturing screenshots, and sending external WhatsApp messages) are staged first. PaiGen will never execute these actions until you explicitly say `"confirm"`. Saying `"cancel"` safely discards the staged action.
    - **Window & App Management**: Instantly switch to or launch apps (`switch to discord`, `focus brave`, `bring up cursor`, `maximize window`, `snap left/right`).
    - **Browser Navigation**: Open tabs, close tabs, reopen closed tabs, switch tabs, refresh page (`open a new tab`, `close this tab`).
    - **Screen & Document Navigation**: Smooth scrolling (`scroll down`, `scroll up`), zoom in/out (`zoom in`, `zoom out`, `reset zoom`).
    - **Streaming & Media**: Direct search and playback across Prime Video, JioCinema, Netflix, Disney+ Hotstar, YouTube, and Spotify (`play my fault on prime video`, `open avengers on jio`).
-   - **Autonomous Messaging**: Hands-free WhatsApp drafting, contact lookup, typing, and sending (`send message to Rohit saying I am on my way`).
+   - **Autonomous Messaging**: Hands-free WhatsApp drafting with contact confirmation (`send message to Rohit saying I am on my way`).
    - **Safety First**: PyAutoGUI failsafe is enabled by default. Strict command syntax prevents conversational false triggers.
 
-4. **Acoustic Double-Clap Wake Trigger**:
+5. **Acoustic Double-Clap Wake Trigger**:
    - Low-latency acoustic transient detector running on PyAudio/sounddevice with dynamic ambient noise floor tracking. Double-clap wakes PaiGen from sleep instantly.
 
-5. **Cognitive Brain & Cited Knowledge**:
+6. **Cognitive Brain & Cited Knowledge**:
    - Powered locally by Ollama (`qwen2.5vl:3b`).
    - Local cited knowledge store spanning World History, Mathematics, Biology, Philosophy, and Affective Psychology with verified bibliographic citations.
    - Persistent conversation memory and telemetry tracking in SQLite WAL mode.
@@ -75,6 +80,11 @@ python interactive_companion.py
 ### Run Unit & Safety Test Suite
 ```bash
 python -m unittest discover tests
+```
+
+### Run Real Hardware & Services End-to-End Validation
+```bash
+python -m unittest tests/test_hardware_and_services.py
 ```
 
 ---
