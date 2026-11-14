@@ -135,8 +135,9 @@ class HumanNatureAttuner:
             "4. SOMATIC CARE: Humans are biological bodies. Remind Arjun of hydration, posture, and sleep when signals align."
         )
 
+        partner_display = f"{user_name} Singh" if user_name.lower() == "arjun" else user_name
         prompt = f"""HUMAN NATURE ATTUNEMENT DIRECTIVES:
-- Companion Partner: {user_name} Singh
+- Companion Partner: {partner_display}
 - Active Circadian Phase: {phase.phase_name}{" [USER OVERRIDE APPLIED]" if forced_phase_name else " [INFERRED FROM CLOCK]"}
 - Biological State: {phase.biological_state}
 - Recommended Interaction Cadence: {phase.recommended_tone}

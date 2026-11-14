@@ -56,9 +56,9 @@ class PatchProposalEngine:
 
         # 2. Read original source code
         with open(target_file, "r", encoding="utf-8") as f:
-            original_lines = f.readlines()
+            original_lines = [line.rstrip("\r\n") for line in f]
 
-        proposed_lines = proposed_code.splitlines(keepends=True)
+        proposed_lines = proposed_code.splitlines()
 
         # 3. Generate unified diff
         diff_lines = list(difflib.unified_diff(
@@ -72,28 +72,29 @@ class PatchProposalEngine:
         if not diff_lines:
             return False, "Proposed code is identical to original; no patch generated.", None
 
-        # 4. Save patch file with metadata and manual review instructions
+        # 4. Save patch file with metadata in Git mailbox format compatible with git apply
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         patch_filename = f"proposal_{Path(target_relative_path).stem}_{timestamp}.patch"
         patch_path = self.patch_dir / patch_filename
 
-        header = [
-            f"# =====================================================================\n",
-            f"# PaiGen AI Proposed Code Modification (PENDING HUMAN REVIEW)\n",
-            f"# Target File: {target_relative_path}\n",
-            f"# Rationale: {rationale}\n",
-            f"# Created: {datetime.now().isoformat()}\n",
-            f"# \n",
-            f"# HOW TO SAFELY TEST & APPLY THIS PATCH:\n",
-            f"# 1. Review the diff below carefully for behavioral correctness.\n",
-            f"# 2. Test patch dry-run: git apply --check {patch_path.relative_to(self.repo_root)}\n",
-            f"# 3. Run regression suite: python -m unittest discover tests\n",
-            f"# 4. Apply if satisfied: git apply {patch_path.relative_to(self.repo_root)}\n",
-            f"# =====================================================================\n\n"
-        ]
+        header = (
+            f"From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001\n"
+            f"From: PaiGen AI <paigen@local>\n"
+            f"Subject: [PATCH] {rationale}\n\n"
+            f"PaiGen AI Proposed Code Modification (PENDING HUMAN REVIEW)\n"
+            f"Target File: {target_relative_path}\n"
+            f"Rationale: {rationale}\n"
+            f"Created: {datetime.now().isoformat()}\n\n"
+            f"HOW TO SAFELY TEST & APPLY THIS PATCH:\n"
+            f"1. Review the diff below carefully for behavioral correctness.\n"
+            f"2. Test patch dry-run: git apply --check {patch_path.relative_to(self.repo_root)}\n"
+            f"3. Run regression suite: python -m unittest discover tests\n"
+            f"4. Apply if satisfied: git apply {patch_path.relative_to(self.repo_root)}\n\n"
+            f"---\n"
+        )
 
-        with open(patch_path, "w", encoding="utf-8") as f:
-            f.writelines(header)
+        with open(patch_path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(header)
             f.write("\n".join(diff_lines) + "\n")
 
         logger.info(f"[*] Generated reviewable patch: {patch_path.name}")
