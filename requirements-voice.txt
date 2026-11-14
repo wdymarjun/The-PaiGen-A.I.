@@ -1,12 +1,16 @@
 # PaiGen AI — Offline Speech-to-Text Backends (100% Local / Zero Cloud)
-# Install at least one backend for offline voice recognition:
+# Install backends:
 #   pip install -r requirements-voice.txt
+#
+# Pre-download local model assets:
+#   python scripts/download_voice_models.py
 
-# 1. OpenAI Whisper (local model runs on CPU or CUDA)
+# 1. OpenAI Whisper (local PyTorch weights in ~/.cache/whisper/base.pt)
 openai-whisper>=20231117
 
-# 2. Vosk (lightweight offline acoustic model engine)
+# 2. Vosk (lightweight acoustic model; unzips to ~/.cache/vosk/ or model/ in root)
+#    Models: https://alphacephei.com/vosk/models
 vosk>=0.3.45
 
-# 3. PocketSphinx (fast, ultra-lightweight CMU Sphinx offline recognizer)
+# 3. PocketSphinx (lightweight CMU Sphinx offline recognizer with embedded acoustic models)
 pocketsphinx>=5.0.3

@@ -62,14 +62,28 @@ pip install -r requirements.txt
 ```
 
 ### 4. Install 100% Local Offline Voice Backends (Required for Voice Input)
-PaiGen never sends microphone audio to the cloud. Install at least one local speech-to-text backend:
+PaiGen never sends microphone audio to the cloud. Install the local speech-to-text backends:
 ```bash
 pip install -r requirements-voice.txt
 ```
 Available offline engines:
-- **OpenAI Whisper** (`openai-whisper`): High-accuracy offline STT. Downloads the local `base` model (~140MB) on first run to user cache.
-- **Vosk** (`vosk`): Ultra-lightweight offline acoustic recognizer. Downloads compact language models locally.
-- **PocketSphinx** (`pocketsphinx`): Embedded CMU Sphinx offline speech decoder requiring zero download on launch.
+- **OpenAI Whisper** (`openai-whisper`): High-accuracy offline STT running on local PyTorch weights.
+- **Vosk** (`vosk`): Ultra-lightweight offline acoustic recognizer running on local Kaldi models.
+- **PocketSphinx** (`pocketsphinx`): Embedded CMU Sphinx offline speech decoder requiring zero separate model downloads.
+
+### 5. Pre-Download Offline Voice Model Assets
+To ensure speech recognition works completely offline and avoids first-run download delays, run the automated setup utility:
+```bash
+python scripts/download_voice_models.py
+```
+
+#### Manual / Air-Gapped Model Setup:
+- **OpenAI Whisper (`base` model)**:
+  Run `python -c "import whisper; whisper.load_model('base')"` to automatically populate `~/.cache/whisper/base.pt` (~140 MB). For air-gapped environments, place `base.pt` directly into `~/.cache/whisper/`.
+- **Vosk (`en-us` acoustic model)**:
+  Run `python -c "import vosk; vosk.Model(lang='en-us')"` to cache the model in `~/.cache/vosk/`. Alternatively, download a model from [alphacephei.com/vosk/models](https://alphacephei.com/vosk/models) (e.g. `vosk-model-small-en-us-0.15`), extract it, and place the unzipped contents into a folder named `model/` in the repository root.
+- **PocketSphinx**:
+  Requires zero asset downloads; acoustic and language dictionaries are packaged directly inside the Python library.
 
 *(Optional: For fine-tuning with LoRA on NVIDIA GPUs, install `pip install -r requirements-train.txt`)*
 
