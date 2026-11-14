@@ -65,23 +65,25 @@ def setup_pocketsphinx():
 
 def main():
     parser = argparse.ArgumentParser(description="Pre-download and setup offline voice models for PaiGen AI.")
-    parser.add_argument("--whisper", action="store_true", help="Download Whisper base model only")
-    parser.add_argument("--vosk", action="store_true", help="Download Vosk en-us model only")
-    parser.add_argument("--all", action="store_true", default=True, help="Set up all installed voice backends")
+    parser.add_argument("--whisper", action="store_true", help="Download Whisper base model")
+    parser.add_argument("--vosk", action="store_true", help="Download Vosk en-us model")
+    parser.add_argument("--pocketsphinx", action="store_true", help="Verify PocketSphinx embedded dictionary")
+    parser.add_argument("--all", action="store_true", help="Set up all installed voice backends (default if no flag specified)")
     args = parser.parse_args()
+
+    # Default to all backends if no specific engine flags are provided
+    run_all = args.all or (not args.whisper and not args.vosk and not args.pocketsphinx)
 
     print("=======================================================")
     print("      PaiGen AI — Offline Voice Model Setup            ")
     print("=======================================================")
 
     success_count = 0
-    if args.whisper:
+    if run_all or args.whisper:
         if setup_whisper(): success_count += 1
-    elif args.vosk:
+    if run_all or args.vosk:
         if setup_vosk(): success_count += 1
-    else:
-        if setup_whisper(): success_count += 1
-        if setup_vosk(): success_count += 1
+    if run_all or args.pocketsphinx:
         if setup_pocketsphinx(): success_count += 1
 
     print("\n-------------------------------------------------------")
@@ -98,3 +100,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
