@@ -21,3 +21,4 @@ if %ERRORLEVEL% NEQ 0 (
     echo [PaiGen exited with error code %ERRORLEVEL%]
     pause
 )
+

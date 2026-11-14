@@ -51,8 +51,24 @@ class TestFaceApp(unittest.TestCase):
         self.assertIsNotNone(paigen_face.CHAT_MODEL)
         self.assertIsNotNone(paigen_face.VISION_MODEL)
         self.assertIsNotNone(paigen_face.OLLAMA_URL)
+        self.assertTrue(hasattr(paigen_face, "AUDIO_TRANSIENT_OK"))
+        self.assertTrue(hasattr(paigen_face, "CV2_OK"))
+        self.assertTrue(hasattr(paigen_face, "SR_OK"))
+        self.assertTrue(hasattr(paigen_face, "TTS_OK"))
         self.assertIn(Emotion.HAPPY, FACE_PARAMS)
         self.assertIn(Emotion.SLEEPING, NEON_COLOR)
+
+    def test_paigen_app_initialization_no_name_errors(self):
+        """Verify PaiGenApp initializes cleanly without NameErrors."""
+        import tkinter as tk
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            app = paigen_face.PaiGenApp(root)
+            self.assertIsNotNone(app)
+            self.assertIsNotNone(app.face)
+        finally:
+            root.destroy()
 
     def test_set_emotion_transitions(self):
         """Test emotion setting, transitions, and forced sleeping immediate switch."""
