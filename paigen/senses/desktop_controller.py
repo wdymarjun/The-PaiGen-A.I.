@@ -54,6 +54,8 @@ VISION_MODEL = os.getenv("PAIGEN_VISION_MODEL", "qwen2.5vl:3b")
 class DesktopController:
     """Provides complete computer vision, window management, and autonomous execution for PaiGen."""
 
+    _STAGED_WHATSAPP_ACTION: Optional[Dict[str, str]] = None
+
     COMMON_APPS = {
         "notepad": "notepad.exe",
         "calculator": "calc.exe",
@@ -706,6 +708,19 @@ class DesktopController:
         cmd = raw.lower()
         clean_cmd = cmd.replace("porime", "prime")
 
+        # ── 0. Confirmation / Cancellation of Staged Safety Actions ───────────
+        if clean_cmd in ("confirm send", "confirm", "send it", "yes send it", "dispatch", "go ahead"):
+            if cls._STAGED_WHATSAPP_ACTION:
+                staged = cls._STAGED_WHATSAPP_ACTION
+                cls._STAGED_WHATSAPP_ACTION = None
+                cls.autonomous_whatsapp_send(staged["contact"], staged["message"], status_callback=status_callback)
+                return f"Confirmed. Sending message to {staged['contact']}: \"{staged['message']}\"."
+
+        if clean_cmd in ("cancel send", "cancel message", "discard", "don't send", "dont send", "cancel"):
+            if cls._STAGED_WHATSAPP_ACTION:
+                cls._STAGED_WHATSAPP_ACTION = None
+                return "Cancelled staged message dispatch."
+
         # ── 1. Live Screen Analysis ───────────────────────────────────────────
         if (re.search(r"\b(?:analyze|see|look\s+at|read|check|examine)\s+(?:my\s+|the\s+)?screen\b", clean_cmd) or clean_cmd in ("read screen", "screen analysis")) and not any(k in clean_cmd for k in ("screen time", "sunscreen", "screenplay")):
             if status_callback:
@@ -878,7 +893,7 @@ class DesktopController:
             return f"Opening '{title.title()}' on {plat_raw.title()}."
 
         # ── 6. Autonomous WhatsApp Messaging ─────────────────────────────────
-        # Strictly matches imperative requests; excludes statements like 'I got a message from X'
+        # Strictly matches imperative requests; requires confirmation before executing keyboard macros
         msg_match = re.search(
             r"^(?:(?:please\s+)?(?:send\s+(?:a\s+)?(?:whatsapp\s+)?message\s+to|send\s+(?:a\s+)?message\s+to|text|whatsapp)\s+([a-zA-Z0-9_]{2,20})\s+(?:saying|explaining|telling\s+(?:him|her|them)?|that)\s+(.+))$",
             raw,
@@ -890,10 +905,16 @@ class DesktopController:
             # Guard against misparsed prepositions
             if friend_name.lower() not in ("from", "to", "him", "her", "them", "someone", "anyone", "the", "my", "a", "an", "this", "that"):
                 drafted_message = cls.draft_friend_message(friend_name, explanation)
-                cls.autonomous_whatsapp_send(friend_name, drafted_message, status_callback=status_callback)
+                # Staged for confirmation to prevent unintended external messages
+                cls._STAGED_WHATSAPP_ACTION = {
+                    "contact": friend_name,
+                    "message": drafted_message
+                }
+                if status_callback:
+                    status_callback(f"⚠️ [Staged for Confirmation]: WhatsApp message for {friend_name}.")
                 return (
-                    f"Taking control of screen: Navigating to WhatsApp, finding {friend_name}, "
-                    f"typing: \"{drafted_message}\", and sending it for you now."
+                    f"Staged message to {friend_name}: \"{drafted_message}\". "
+                    f"Please say 'confirm send' to dispatch, or 'cancel' to discard."
                 )
 
         # ── 7. Window Focus, Switching & Management ──────────────────────────

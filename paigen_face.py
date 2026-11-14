@@ -35,6 +35,21 @@ import urllib.request
 import urllib.error
 import webbrowser
 
+# ─── Config ───────────────────────────────────────────────────────────────────
+OLLAMA_URL      = os.getenv("PAIGEN_OLLAMA_URL",    "http://127.0.0.1:11434")
+VISION_MODEL    = os.getenv("PAIGEN_VISION_MODEL",  "qwen2.5vl:3b")
+CHAT_MODEL      = os.getenv("PAIGEN_CHAT_MODEL",    "qwen2.5vl:3b")
+CAM_INDEX       = int(os.getenv("PAIGEN_CAM_INDEX", "0"))
+MOTION_THRESH   = float(os.getenv("PAIGEN_MOTION_THRESH", "25.0"))
+VISION_INTERVAL = float(os.getenv("PAIGEN_VISION_INTERVAL", "25.0"))
+SLEEP_AFTER     = float(os.getenv("PAIGEN_SLEEP_AFTER",     "45.0"))
+
+# Double-clap acoustic wake tuning (Jarvis-inspired)
+CLAP_SPIKE_RATIO   = float(os.getenv("PAIGEN_CLAP_SPIKE_RATIO", "6.5"))
+CLAP_MIN_GAP_S     = 0.05
+CLAP_MAX_GAP_S     = 0.40
+CLAP_MIN_RMS       = 0.015
+
 from paigen.senses.desktop_controller import DesktopController
 from paigen.brain.cognitive import CognitiveBrain, TelemetryContext
 from paigen.database.sqlite_store import SQLiteWALStore
@@ -45,45 +60,6 @@ brain = CognitiveBrain(model_name=CHAT_MODEL, ollama_base_url=OLLAMA_URL, db_sto
 telemetry = TelemetryContext(user_name="Arjun", session_id="face_gui_session")
 
 # ─── Optional dependencies ────────────────────────────────────────────────────
-try:
-    import cv2
-    CV2_OK = True
-except ImportError:
-    CV2_OK = False
-
-try:
-    import speech_recognition as sr
-    SR_OK = True
-except ImportError:
-    SR_OK = False
-
-try:
-    import pyttsx3
-    TTS_OK = True
-except ImportError:
-    TTS_OK = False
-
-try:
-    import numpy as np
-    import sounddevice as sd
-    AUDIO_TRANSIENT_OK = True
-except ImportError:
-    AUDIO_TRANSIENT_OK = False
-
-# ─── Config ───────────────────────────────────────────────────────────────────
-OLLAMA_URL      = os.getenv("PAIGEN_OLLAMA_URL",    "http://127.0.0.1:11434")
-VISION_MODEL    = os.getenv("PAIGEN_VISION_MODEL",  "qwen2.5vl:3b")
-CHAT_MODEL      = os.getenv("PAIGEN_CHAT_MODEL",    "qwen2.5vl:3b")
-CAM_INDEX       = int(os.getenv("PAIGEN_CAM_INDEX", "0"))
-MOTION_THRESH   = float(os.getenv("PAIGEN_MOTION_THRESH", "25.0"))
-VISION_INTERVAL = float(os.getenv("PAIGEN_VISION_INTERVAL", "10.0"))
-SLEEP_AFTER     = float(os.getenv("PAIGEN_SLEEP_AFTER",     "40.0"))
-
-# Double-clap acoustic wake tuning (Jarvis-inspired)
-CLAP_SPIKE_RATIO   = float(os.getenv("PAIGEN_CLAP_SPIKE_RATIO", "6.5"))
-CLAP_MIN_GAP_S     = 0.05
-CLAP_MAX_GAP_S     = 0.40
-CLAP_MIN_RMS       = 0.015
 
 # ─── Emotions ─────────────────────────────────────────────────────────────────
 class Emotion(Enum):
@@ -303,10 +279,13 @@ def _camera_worker():
                 ui_msg_q.put("👋 PaiGen senses you — waking up!")
         prev_gray = gray
 
-        # Vision glance
+        # Vision glance: only glances when user has moved or recently interacted
         now = time.time()
+        has_motion = motion > (MOTION_THRESH * 0.7) if prev_gray is not None else False
+        is_active = (now - state.last_interaction < 30.0) or has_motion
         if (now - state.last_vision_time > VISION_INTERVAL
-                and state.emotion not in (Emotion.SLEEPING, Emotion.SPEAKING)):
+                and state.emotion not in (Emotion.SLEEPING, Emotion.SPEAKING)
+                and is_active):
             state.last_vision_time = now
             _set_emotion(Emotion.CURIOUS)
             ok2, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 72])
@@ -464,14 +443,30 @@ def _mic_worker():
         _set_emotion(Emotion.THINKING)
 
         text = None
-        # Try primary recognizer (Google Web Speech) with fallback
-        try:
-            text = r.recognize_google(audio, language="en-IN")
-        except Exception:
+        voice_backend = os.getenv("PAIGEN_VOICE_BACKEND", "auto").lower()
+
+        # 1. Attempt local offline speech-to-text (Whisper / Vosk)
+        if voice_backend in ("whisper", "local", "auto"):
             try:
-                text = r.recognize_google(audio, language="en-US")
+                text = r.recognize_whisper(audio, model="base")
             except Exception:
-                text = None
+                pass
+
+        if not text and voice_backend in ("vosk", "auto"):
+            try:
+                text = r.recognize_vosk(audio)
+            except Exception:
+                pass
+
+        # 2. Fallback to web recognizer if local model is uninstalled and offline_only is not enforced
+        if not text and voice_backend != "offline_only":
+            try:
+                text = r.recognize_google(audio, language="en-IN")
+            except Exception:
+                try:
+                    text = r.recognize_google(audio, language="en-US")
+                except Exception:
+                    text = None
 
         state.is_analyzing_voice = False
 
