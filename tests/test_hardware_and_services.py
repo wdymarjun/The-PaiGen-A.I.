@@ -1,10 +1,10 @@
 """
 PaiGen AI — Live Hardware, Service & End-to-End Integration Tests
-Validates real machine environment capabilities:
-1. Real Local Ollama Daemon & Live LLM generation roundtrip.
-2. Real Camera Hardware (OpenCV VideoCapture, frame acquisition, and release).
-3. Real Microphone & Audio Input Subsystem enumeration.
-4. Real Desktop Display accessibility & in-memory screen grab grounding.
+Validates real machine environment capabilities with conditional skip guards:
+1. Real Local Ollama Daemon & Live LLM generation roundtrip (skips if Ollama offline).
+2. Real Camera Hardware acquisition and release (skips if no physical webcam).
+3. Real Microphone & Audio Input Subsystem enumeration (skips if no mic attached).
+4. Real Desktop Display accessibility & in-memory screen grab (skips if headless).
 5. End-to-End Desktop Safety Gating on live machine.
 """
 
@@ -23,8 +23,50 @@ from paigen_face import _ollama_chat, OLLAMA_URL, CHAT_MODEL
 from paigen.senses.desktop_controller import DesktopController
 
 
+def _is_ollama_online() -> bool:
+    """Checks if the local Ollama daemon is reachable."""
+    try:
+        req = urllib.request.Request(f"{OLLAMA_URL}/api/tags")
+        with urllib.request.urlopen(req, timeout=1.5) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
+
+
+def _is_camera_present() -> bool:
+    """Checks if a hardware camera device is physically attached and openable."""
+    try:
+        cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+        if not cap.isOpened():
+            cap = cv2.VideoCapture(0)
+        opened = cap.isOpened()
+        if opened:
+            cap.release()
+        return opened
+    except Exception:
+        return False
+
+
+def _is_mic_present() -> bool:
+    """Checks if an audio input or microphone device is available."""
+    try:
+        return len(sr.Microphone.list_microphone_names()) > 0
+    except Exception:
+        return False
+
+
+def _is_display_present() -> bool:
+    """Checks if an interactive graphical display is accessible."""
+    try:
+        w, h = pyautogui.size()
+        return w > 0 and h > 0
+    except Exception:
+        return False
+
+
 class TestLiveHardwareAndServices(unittest.TestCase):
 
+    @unittest.skipUnless(_is_ollama_online(), "Local Ollama daemon is not running at OLLAMA_URL")
     def test_01_real_ollama_live_service_and_chat(self):
         """Validates real live Ollama server is running and local model responds."""
         # 1. Ping tags API
@@ -47,6 +89,7 @@ class TestLiveHardwareAndServices(unittest.TestCase):
         self.assertFalse(reply.startswith("[offline:"), f"Live Ollama call failed: {reply}")
         self.assertTrue(len(reply) > 0, "Empty reply from live Ollama chat.")
 
+    @unittest.skipUnless(_is_camera_present(), "No physical camera detected on this system")
     def test_02_real_camera_hardware_and_frame_capture(self):
         """Validates real camera device opens, captures a valid image frame, and releases safely."""
         cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
@@ -66,6 +109,7 @@ class TestLiveHardwareAndServices(unittest.TestCase):
             cap.release()
             self.assertFalse(cap.isOpened(), "Camera hardware was not successfully released.")
 
+    @unittest.skipUnless(_is_mic_present(), "No audio input/microphone hardware detected on this host")
     def test_03_real_microphone_device_enumeration(self):
         """Validates real audio input hardware devices are enumerated without driver crash."""
         try:
@@ -78,6 +122,7 @@ class TestLiveHardwareAndServices(unittest.TestCase):
         except Exception as e:
             self.fail(f"Audio input subsystem error: {e}")
 
+    @unittest.skipUnless(_is_display_present(), "No interactive display/screen detected (headless environment)")
     def test_04_real_desktop_display_and_screen_grab(self):
         """Validates real display metrics and in-memory screen grab accessibility."""
         screen_w, screen_h = pyautogui.size()
