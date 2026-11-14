@@ -60,6 +60,30 @@ brain = CognitiveBrain(model_name=CHAT_MODEL, ollama_base_url=OLLAMA_URL, db_sto
 telemetry = TelemetryContext(user_name="Arjun", session_id="face_gui_session")
 
 # ─── Optional dependencies ────────────────────────────────────────────────────
+try:
+    import cv2
+    CV2_OK = True
+except ImportError:
+    CV2_OK = False
+
+try:
+    import speech_recognition as sr
+    SR_OK = True
+except ImportError:
+    SR_OK = False
+
+try:
+    import pyttsx3
+    TTS_OK = True
+except ImportError:
+    TTS_OK = False
+
+try:
+    import numpy as np
+    import sounddevice as sd
+    AUDIO_TRANSIENT_OK = True
+except ImportError:
+    AUDIO_TRANSIENT_OK = False
 
 # ─── Emotions ─────────────────────────────────────────────────────────────────
 class Emotion(Enum):
