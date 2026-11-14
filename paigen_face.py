@@ -126,28 +126,72 @@ EMOTION_LABEL = {
 }
 
 # ─── Face geometry per emotion ────────────────────────────────────────────────
-# Each emotion is a dict of control params that get linearly interpolated:
-#   eye_open    : 0.0 (closed crescent) → 1.0 (full dot)
-#   eye_size    : radius of the eye dot (pixels)
-#   eye_squint  : asymmetric squint on left eye (0 = none, 1 = fully squinted)
-#   smile       : -1.0 (deep frown) → 0.0 (flat) → 1.0 (big smile)
-#   mouth_open  : 0.0 (closed) → 1.0 (wide open O)
-#   mouth_w     : width of mouth arc (pixels)
-#   brow_raise  : 0.0 (normal) → 1.0 (raised eyebrows for surprise)
+# Expression: Cute, minimalist, expressive ( ◠ ‿ ◠ ) with smooth organic animations.
+#   eye_w       : horizontal half-width of the happy arch ◠ (pixels)
+#   eye_h       : vertical arch height of ◠ (pixels)
+#   eye_arch    : arch factor (+1.0 = happy arch ◠, 0 = flat -, -1.0 = sad ◡)
+#   smile       : curvature of smile ‿ (0 = flat, 1.0 = warm smile)
+#   mouth_w     : half-width of mouth arc (pixels)
+#   mouth_open  : open mouth multiplier for talking/laughing
+#   blush       : rosy cheek glow opacity (0.0 to 1.0)
+#   tilt        : subtle natural head tilt angle (radians)
+#   bob_speed   : gentle breathing float frequency
+#   bob_amp     : gentle breathing float amplitude (pixels)
 #   pulse_speed : glow pulsation frequency multiplier
 #   pulse_amp   : glow ring radius pulsation amplitude
+# Backward compatibility keys: eye_open, eye_size, eye_squint, brow_raise
 
 FACE_PARAMS = {
-    Emotion.IDLE:      dict(eye_open=1.0, eye_size=10, eye_squint=0.0, smile= 0.30, mouth_open=0.0, mouth_w=48, brow_raise=0.0, pulse_speed=0.6, pulse_amp=3),
-    Emotion.HAPPY:     dict(eye_open=1.0, eye_size=11, eye_squint=0.0, smile= 0.90, mouth_open=0.0, mouth_w=56, brow_raise=0.0, pulse_speed=0.9, pulse_amp=5),
-    Emotion.EXCITED:   dict(eye_open=1.0, eye_size=14, eye_squint=0.0, smile= 1.00, mouth_open=0.5, mouth_w=60, brow_raise=0.8, pulse_speed=1.6, pulse_amp=8),
-    Emotion.SAD:       dict(eye_open=0.7, eye_size= 9, eye_squint=0.0, smile=-0.80, mouth_open=0.0, mouth_w=44, brow_raise=0.0, pulse_speed=0.4, pulse_amp=2),
-    Emotion.THINKING:  dict(eye_open=1.0, eye_size=10, eye_squint=0.6, smile= 0.15, mouth_open=0.0, mouth_w=36, brow_raise=0.0, pulse_speed=0.7, pulse_amp=4),
-    Emotion.SURPRISED: dict(eye_open=1.0, eye_size=16, eye_squint=0.0, smile= 0.00, mouth_open=1.0, mouth_w=44, brow_raise=1.0, pulse_speed=1.3, pulse_amp=6),
-    Emotion.CURIOUS:   dict(eye_open=1.0, eye_size=11, eye_squint=0.3, smile= 0.40, mouth_open=0.0, mouth_w=42, brow_raise=0.5, pulse_speed=0.8, pulse_amp=4),
-    Emotion.LISTENING: dict(eye_open=1.0, eye_size=11, eye_squint=0.0, smile= 0.20, mouth_open=0.3, mouth_w=40, brow_raise=0.0, pulse_speed=0.7, pulse_amp=3),
-    Emotion.SPEAKING:  dict(eye_open=1.0, eye_size=11, eye_squint=0.0, smile= 0.50, mouth_open=0.6, mouth_w=50, brow_raise=0.0, pulse_speed=1.1, pulse_amp=4),
-    Emotion.SLEEPING:  dict(eye_open=0.0, eye_size= 8, eye_squint=0.0, smile= 0.10, mouth_open=0.0, mouth_w=38, brow_raise=0.0, pulse_speed=0.2, pulse_amp=2),
+    Emotion.IDLE: dict(
+        eye_w=22, eye_h=15, eye_arch=1.0, smile=0.85, mouth_w=28, mouth_open=0.0,
+        blush=0.65, tilt=0.0, bob_speed=0.045, bob_amp=4.5, pulse_speed=0.6, pulse_amp=3.0,
+        eye_open=1.0, eye_size=10, eye_squint=0.0, brow_raise=0.0
+    ),
+    Emotion.HAPPY: dict(
+        eye_w=24, eye_h=18, eye_arch=1.25, smile=1.15, mouth_w=32, mouth_open=0.1,
+        blush=0.95, tilt=0.02, bob_speed=0.065, bob_amp=6.0, pulse_speed=0.9, pulse_amp=5.0,
+        eye_open=1.0, eye_size=11, eye_squint=0.0, brow_raise=0.0
+    ),
+    Emotion.EXCITED: dict(
+        eye_w=25, eye_h=21, eye_arch=1.35, smile=1.25, mouth_w=35, mouth_open=0.6,
+        blush=1.0, tilt=0.05, bob_speed=0.09, bob_amp=8.0, pulse_speed=1.5, pulse_amp=8.0,
+        eye_open=1.0, eye_size=14, eye_squint=0.0, brow_raise=0.8
+    ),
+    Emotion.SAD: dict(
+        eye_w=20, eye_h=11, eye_arch=-0.65, smile=-0.5, mouth_w=22, mouth_open=0.0,
+        blush=0.15, tilt=-0.03, bob_speed=0.025, bob_amp=2.5, pulse_speed=0.35, pulse_amp=2.0,
+        eye_open=0.7, eye_size=9, eye_squint=0.0, brow_raise=0.0
+    ),
+    Emotion.THINKING: dict(
+        eye_w=22, eye_h=14, eye_arch=0.9, smile=0.45, mouth_w=24, mouth_open=0.0,
+        blush=0.5, tilt=0.08, bob_speed=0.035, bob_amp=3.5, pulse_speed=0.7, pulse_amp=4.0,
+        eye_open=1.0, eye_size=10, eye_squint=0.6, brow_raise=0.0
+    ),
+    Emotion.SURPRISED: dict(
+        eye_w=22, eye_h=22, eye_arch=0.25, smile=0.1, mouth_w=20, mouth_open=1.0,
+        blush=0.8, tilt=0.0, bob_speed=0.08, bob_amp=7.0, pulse_speed=1.3, pulse_amp=7.0,
+        eye_open=1.0, eye_size=16, eye_squint=0.0, brow_raise=1.0
+    ),
+    Emotion.CURIOUS: dict(
+        eye_w=23, eye_h=16, eye_arch=1.1, smile=0.8, mouth_w=27, mouth_open=0.0,
+        blush=0.75, tilt=0.11, bob_speed=0.05, bob_amp=5.0, pulse_speed=0.8, pulse_amp=4.5,
+        eye_open=1.0, eye_size=11, eye_squint=0.3, brow_raise=0.5
+    ),
+    Emotion.LISTENING: dict(
+        eye_w=23, eye_h=17, eye_arch=1.15, smile=0.9, mouth_w=29, mouth_open=0.15,
+        blush=0.85, tilt=0.04, bob_speed=0.055, bob_amp=5.5, pulse_speed=1.0, pulse_amp=5.0,
+        eye_open=1.0, eye_size=11, eye_squint=0.0, brow_raise=0.0
+    ),
+    Emotion.SPEAKING: dict(
+        eye_w=23, eye_h=17, eye_arch=1.2, smile=0.95, mouth_w=31, mouth_open=0.65,
+        blush=0.85, tilt=0.02, bob_speed=0.06, bob_amp=5.0, pulse_speed=1.1, pulse_amp=5.0,
+        eye_open=1.0, eye_size=11, eye_squint=0.0, brow_raise=0.0
+    ),
+    Emotion.SLEEPING: dict(
+        eye_w=19, eye_h=4, eye_arch=0.05, smile=0.3, mouth_w=24, mouth_open=0.0,
+        blush=0.25, tilt=0.0, bob_speed=0.02, bob_amp=2.0, pulse_speed=0.2, pulse_amp=2.0,
+        eye_open=0.0, eye_size=8, eye_squint=0.0, brow_raise=0.0
+    ),
 }
 
 def _lerp(a: float, b: float, t: float) -> float:
@@ -660,19 +704,23 @@ def _brain_worker():
         chat_q.task_done()
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  NEON FACE RENDERER
+#  NEON FACE RENDERER — Expressive ( ◠ ‿ ◠ ) with Silky Smooth Animations
 # ─────────────────────────────────────────────────────────────────────────────
 class NeonFace:
     """
-    Draws the PaiGen face on a tkinter Canvas using layered neon glow simulation.
-    Glow = draw same shape 5–8× with decreasing brightness and increasing radius.
-    All emotion geometry is interpolated (lerp) every frame for silky transitions.
+    Draws the cute, minimalist, expressive PaiGen ( ◠ ‿ ◠ ) avatar on a tkinter Canvas
+    using layered neon glow simulation with silky smooth organic animations:
+      - Breathing & floating sinusoidal bob
+      - Responsive head micro-tilt and sway
+      - Organic eye blinking (◠ -> - -> ◠ with elastic bounce)
+      - Synchronized talking mouth movements (‿ <-> ヮ)
+      - Soft rosy glowing cheek blushes
+      - Pulsing neon ring and ambient sparkles
     """
 
-    # Glow layers: (radius_offset, brightness_factor)
     GLOW_LAYERS = [(16, 0.08), (12, 0.14), (8, 0.22), (5, 0.35), (3, 0.55), (1, 0.80), (0, 1.0)]
 
-    def __init__(self, canvas: tk.Canvas, cx: int, cy: int, face_r: int = 160):
+    def __init__(self, canvas, cx: int, cy: int, face_r: int = 112):
         self.c  = canvas
         self.cx = cx
         self.cy = cy
@@ -684,26 +732,26 @@ class NeonFace:
         self._src_params  = dict(FACE_PARAMS[Emotion.IDLE])
         self._dst_params  = dict(FACE_PARAMS[Emotion.IDLE])
         self._lerp_t      = 1.0
-        self._lerp_speed  = 0.045   # fraction per frame (~25fps → ~1.1s transition)
+        self._lerp_speed  = 0.045
 
-        self._cur_rgb: Tuple[int,int,int] = NEON_COLOR[Emotion.IDLE]
-        self._src_rgb: Tuple[int,int,int] = NEON_COLOR[Emotion.IDLE]
-        self._dst_rgb: Tuple[int,int,int] = NEON_COLOR[Emotion.IDLE]
+        self._cur_rgb = NEON_COLOR[Emotion.IDLE]
+        self._src_rgb = NEON_COLOR[Emotion.IDLE]
+        self._dst_rgb = NEON_COLOR[Emotion.IDLE]
         self._prev_target = Emotion.IDLE
 
-        # Blink
-        self._blink_timer = random.randint(60, 160)
-        self._blink_phase  = 0.0   # 0.0 = open, 1.0 = closed
+        # Blinking animation state
+        self._blink_timer = 90
+        self._blink_phase = 0.0    # 0.0 = open ◠, 1.0 = closed line -
+        self._is_blinking = False
 
-        # Pupils
-        self._px, self._py = 0.0, 0.0
-        self._ptx, self._pty = 0.0, 0.0
-        self._pupil_wander = 0
+        # Head sway & float
+        self._float_y = 0.0
+        self._tilt_angle = 0.0
 
         # Mouth talking phase
         self._mouth_phase = 0.0
 
-        # Sparkle
+        # Sparkle phase
         self._sparkle_phase = 0.0
 
     def update_target(self, emotion: Emotion):
@@ -717,236 +765,221 @@ class NeonFace:
 
     def tick_animate(self):
         self.tick += 1
+        p = self._cur_params
 
-        # Advance lerp
+        # 1. Smooth emotion lerp transition (smoothstep)
         if self._lerp_t < 1.0:
             self._lerp_t = min(1.0, self._lerp_t + self._lerp_speed)
-            # Smooth ease-in-out (smoothstep)
-            t3 = self._lerp_t * self._lerp_t * (3 - 2 * self._lerp_t)
+            t3 = self._lerp_t * self._lerp_t * (3.0 - 2.0 * self._lerp_t)
             self._cur_params = _lerp_params(self._src_params, self._dst_params, t3)
             r1, g1, b1 = self._src_rgb
             r2, g2, b2 = self._dst_rgb
             self._cur_rgb = (
-                int(r1 + (r2-r1)*t3),
-                int(g1 + (g2-g1)*t3),
-                int(b1 + (b2-b1)*t3),
+                int(r1 + (r2 - r1) * t3),
+                int(g1 + (g2 - g1) * t3),
+                int(b1 + (b2 - b1) * t3),
             )
-
             if self._lerp_t >= 1.0:
                 state.emotion = state.target_emotion
 
-        # Blink
+        # 2. Organic breathing & floating bob
+        bob_speed = p.get("bob_speed", 0.045)
+        bob_amp   = p.get("bob_amp", 4.5)
+        self._float_y = math.sin(self.tick * bob_speed) * bob_amp
+
+        # 3. Micro head sway & tilt
+        base_tilt = p.get("tilt", 0.0)
+        self._tilt_angle = base_tilt + math.sin(self.tick * 0.03) * 0.025
+
+        # 4. Organic Blinking Animation (◠ -> - -> ◠)
         em = state.emotion
         if em == Emotion.SLEEPING:
             self._blink_phase = min(1.0, self._blink_phase + 0.1)
         else:
-            if self._blink_timer <= 0:
-                if self._blink_phase < 0.5:
-                    self._blink_phase = min(1.0, self._blink_phase + 0.25)
-                else:
-                    self._blink_phase = max(0.0, self._blink_phase - 0.25)
-                    if self._blink_phase == 0.0:
-                        self._blink_timer = random.randint(60, 200)
-            else:
+            if not self._is_blinking:
                 self._blink_timer -= 1
-                self._blink_phase = max(0.0, self._blink_phase - 0.15)
+                if self._blink_timer <= 0:
+                    self._is_blinking = True
+                    self._blink_phase = 0.0
+            else:
+                if self._blink_phase < 1.0:
+                    self._blink_phase = min(1.0, self._blink_phase + 0.32)
+                else:
+                    self._is_blinking = False
+                    self._blink_timer = random.randint(80, 220)
+            if not self._is_blinking and self._blink_phase > 0.0:
+                self._blink_phase = max(0.0, self._blink_phase - 0.22)
 
-        # Pupil wander
-        self._pupil_wander -= 1
-        if self._pupil_wander <= 0:
-            self._ptx = random.uniform(-10, 10)
-            self._pty = random.uniform(-7,  7)
-            self._pupil_wander = random.randint(40, 120)
-        self._px += (self._ptx - self._px) * 0.06
-        self._py += (self._pty - self._py) * 0.06
-
-        # Mouth phase for speaking animation
-        p = self._cur_params
+        # 5. Speech mouth animation
         if state.speaking:
-            self._mouth_phase += 0.22
+            self._mouth_phase += 0.25
         else:
-            self._mouth_phase += 0.05
-        self._mouth_phase %= (2 * math.pi)
+            self._mouth_phase += 0.04
+        self._mouth_phase %= (2.0 * math.pi)
 
-        # Sparkle
-        self._sparkle_phase = (self._sparkle_phase + 0.04) % (2 * math.pi)
+        # 6. Sparkle twinkle
+        self._sparkle_phase = (self._sparkle_phase + 0.05) % (2.0 * math.pi)
+
+    def _rotate_pt(self, x: float, y: float, ox: float, oy: float, angle: float):
+        if abs(angle) < 0.001:
+            return x, y
+        ca, sa = math.cos(angle), math.sin(angle)
+        dx, dy = x - ox, y - oy
+        return ox + dx * ca - dy * sa, oy + dx * sa + dy * ca
 
     def draw(self):
         p   = self._cur_params
         rgb = self._cur_rgb
-        cx, cy, r = self.cx, self.cy, self.r
+        cx  = self.cx
+        cy  = self.cy + self._float_y
+        r   = self.r
+        tilt = self._tilt_angle
 
-        # Pulsing ring radius
-        pulse = p["pulse_amp"] * math.sin(self.tick * 0.04 * p["pulse_speed"])
-
-        # ── Neon ring ────────────────────────────────────────────────────────
+        # ── 1. Neon Outer Ring ───────────────────────────────────────────────
+        pulse_spd = p.get("pulse_speed", 0.6)
+        pulse_amp = p.get("pulse_amp", 3.0)
+        pulse = pulse_amp * math.sin(self.tick * 0.04 * pulse_spd)
         self._neon_oval(cx, cy, r + pulse, 2.5, rgb)
 
-        # ── Eyes ─────────────────────────────────────────────────────────────
-        ex_l = cx - 52
-        ex_r = cx + 52
-        ey   = cy - 24
-        self._draw_eye(ex_l, ey, rgb, p, is_left=True)
-        self._draw_eye(ex_r, ey, rgb, p, is_left=False)
+        # ── 2. Cheeks: Rosy Glowing Neon Blushes ─────────────────────────────
+        blush_level = p.get("blush", 0.65) * (0.85 + 0.15 * math.sin(self.tick * 0.05))
+        if blush_level > 0.08:
+            blush_rgb = (255, 115, 160)
+            bw, bh = 15, 6
+            c_lx, c_ly = self._rotate_pt(cx - 58, cy + 16, cx, cy, tilt)
+            c_rx, c_ry = self._rotate_pt(cx + 58, cy + 16, cx, cy, tilt)
+            for rd, bf in [(8, 0.10), (5, 0.22), (2, 0.45), (0, 0.80)]:
+                b_col = _dim_color(blush_rgb, bf * blush_level)
+                self.c.create_oval(c_lx - bw - rd, c_ly - bh - rd, c_lx + bw + rd, c_ly + bh + rd, fill=b_col, outline="")
+                self.c.create_oval(c_rx - bw - rd, c_ry - bh - rd, c_rx + bw + rd, c_ry + bh + rd, fill=b_col, outline="")
 
-        # ── Nose ─────────────────────────────────────────────────────────────
-        self._draw_nose(cx, cy + 6, rgb)
+        # ── 3. Eyes: Cute Upward Arches ( ◠ and ◠ ) ──────────────────────────
+        ex_l, ey_l = self._rotate_pt(cx - 44, cy - 14, cx, cy, tilt)
+        ex_r, ey_r = self._rotate_pt(cx + 44, cy - 14, cx, cy, tilt)
+        self._draw_eye_arch(ex_l, ey_l, rgb, p, is_left=True)
+        self._draw_eye_arch(ex_r, ey_r, rgb, p, is_left=False)
 
-        # ── Mouth ────────────────────────────────────────────────────────────
-        self._draw_mouth(cx, cy + 54, rgb, p)
+        # ── 4. Mouth: Sweet Curved Smile ( ‿ ) ───────────────────────────────
+        mx, my = self._rotate_pt(cx, cy + 34, cx, cy, tilt)
+        self._draw_smile_mouth(mx, my, rgb, p)
 
-        # ── Sparkle (corner) ─────────────────────────────────────────────────
-        sx = cx + r + 50
-        sy = cy + r + 40
-        self._draw_sparkle(sx, sy, rgb, 7)
+        # ── 5. Ambient Twinkling Sparkles ────────────────────────────────────
+        sx1, sy1 = self._rotate_pt(cx + r * 0.72, cy - r * 0.60, cx, cy, tilt * 0.5)
+        self._draw_sparkle(sx1, sy1, rgb, 6)
 
-    # ── Core neon drawing helpers ─────────────────────────────────────────────
-
+    # ── Drawing Helpers ───────────────────────────────────────────────────────
     def _neon_oval(self, cx, cy, r, lw, rgb):
         for rd, bf in self.GLOW_LAYERS:
             col = _dim_color(rgb, bf)
             rr  = r + rd
-            self.c.create_oval(cx-rr, cy-rr, cx+rr, cy+rr,
-                               outline=col, width=lw + rd*0.3, fill="")
+            self.c.create_oval(cx-rr, cy-rr, cx+rr, cy+rr, outline=col, width=lw + rd*0.3, fill="")
 
     def _neon_arc(self, x0, y0, x1, y1, start, extent, lw, rgb, style="arc"):
         for rd, bf in self.GLOW_LAYERS:
             col = _dim_color(rgb, bf)
-            self.c.create_arc(x0-rd, y0-rd, x1+rd, y1+rd,
-                              start=start, extent=extent, style=style,
-                              outline=col, width=lw + rd*0.25)
+            self.c.create_arc(x0-rd, y0-rd, x1+rd, y1+rd, start=start, extent=extent, style=style, outline=col, width=lw + rd*0.25)
 
-    def _neon_dot(self, cx, cy, r, rgb):
-        for rd, bf in self.GLOW_LAYERS:
-            col = _dim_color(rgb, bf)
-            rr  = r + rd * 0.9
-            self.c.create_oval(cx-rr, cy-rr, cx+rr, cy+rr,
-                               fill=col, outline="")
-
-    # ── Eye ──────────────────────────────────────────────────────────────────
-
-    def _draw_eye(self, cx, cy, rgb, p, is_left: bool):
-        eye_open  = p["eye_open"]
-        eye_size  = p["eye_size"]
-        squint    = p["eye_squint"] if is_left else 0.0
-
-        # Sleeping / full blink: closed crescent
+    def _draw_eye_arch(self, ex: float, ey: float, rgb, p: dict, is_left: bool):
+        ew = p.get("eye_w", 22.0)
+        eh = p.get("eye_h", 15.0)
+        arch = p.get("eye_arch", 1.0)
         blink = self._blink_phase
-        effective_open = eye_open * (1.0 - blink) * (1.0 - squint * 0.6)
 
-        px = int(self._px) if not is_left else int(self._px)
-        py = int(self._py)
+        effective_h = eh * (1.0 - blink) * abs(arch)
 
-        if effective_open < 0.15:
-            # Closed crescent line
-            lw = 2.5
-            for rd, bf in self.GLOW_LAYERS:
+        # If fully closed / blinking -> draw smooth horizontal eyelid line: -
+        if effective_h < 1.8:
+            for rd, bf in self.GLOW_LAYERS[:6]:
                 col = _dim_color(rgb, bf)
-                self.c.create_arc(
-                    cx - eye_size - rd, cy - 6 - rd,
-                    cx + eye_size + rd, cy + 6 + rd,
-                    start=0, extent=180, style="arc",
-                    outline=col, width=lw + rd*0.3)
+                self.c.create_line(
+                    ex - ew - rd*0.4, ey,
+                    ex + ew + rd*0.4, ey,
+                    fill=col, width=2.6 + rd*0.28
+                )
         else:
-            # Dot eye — scale size with openness
-            er = eye_size * effective_open
-            self._neon_dot(cx + px, cy + py, er, rgb)
+            if arch >= 0:
+                # Classic upward happy arch: ◠
+                for rd, bf in self.GLOW_LAYERS:
+                    col = _dim_color(rgb, bf)
+                    self.c.create_arc(
+                        ex - ew - rd, ey - effective_h - rd,
+                        ex + ew + rd, ey + effective_h + rd,
+                        start=0, extent=180, style="arc",
+                        outline=col, width=2.8 + rd*0.25
+                    )
+            else:
+                # Downward droopy arch (sad / sleepy): ◡
+                for rd, bf in self.GLOW_LAYERS:
+                    col = _dim_color(rgb, bf)
+                    self.c.create_arc(
+                        ex - ew - rd, ey - effective_h - rd,
+                        ex + ew + rd, ey + effective_h + rd,
+                        start=180, extent=180, style="arc",
+                        outline=col, width=2.8 + rd*0.25
+                    )
 
-            # Tiny specular white highlight
-            if effective_open > 0.5:
-                hr = max(1.5, er * 0.28)
-                self.c.create_oval(
-                    cx + px - hr*0.4, cy + py - er*0.45,
-                    cx + px + hr*0.4, cy + py - er*0.45 + hr,
-                    fill="white", outline="")
+    def _draw_smile_mouth(self, mx: float, my: float, rgb, p: dict):
+        mw = p.get("mouth_w", 28.0)
+        smile = p.get("smile", 0.85)
+        m_open = p.get("mouth_open", 0.0)
 
-        # Eyebrow arc (for surprise / curious)
-        brow = p.get("brow_raise", 0.0)
-        if brow > 0.05:
-            by = cy - eye_size - 10 - int(brow * 10)
-            lw_brow = 1.8 + brow
-            for rd, bf in self.GLOW_LAYERS[:5]:
-                col = _dim_color(rgb, bf * brow)
-                self.c.create_arc(
-                    cx - eye_size - 6 - rd, by - 5 - rd,
-                    cx + eye_size + 6 + rd, by + 7 + rd,
-                    start=20, extent=140, style="arc",
-                    outline=col, width=lw_brow + rd * 0.2)
-
-    # ── Nose ─────────────────────────────────────────────────────────────────
-
-    def _draw_nose(self, cx, cy, rgb):
-        """
-        Simple hook nose: a small vertical line curving right at the bottom,
-        exactly like the reference image.
-        """
-        # Stem: short arc going down
-        for rd, bf in self.GLOW_LAYERS:
-            col = _dim_color(rgb, bf)
-            self.c.create_arc(
-                cx - 8 - rd, cy - 16 - rd,
-                cx + 8 + rd, cy + 4 + rd,
-                start=270, extent=-90,
-                style="arc", outline=col, width=2 + rd * 0.25)
-        # Nostril hint: tiny dot at the bottom-right of the hook
-        self._neon_dot(cx + 7, cy + 2, 2.5, rgb)
-
-    # ── Mouth ────────────────────────────────────────────────────────────────
-
-    def _draw_mouth(self, cx, cy, rgb, p):
-        smile    = p["smile"]
-        m_open   = p["mouth_open"]
-        mw       = p["mouth_w"]
-
+        # If speaking or laughing, oscillate mouth openness smoothly: ‿ <-> ヮ
         if state.speaking:
-            # Animated talking: sine-wave open/close
             m_open = max(0.25, abs(math.sin(self._mouth_phase)) * 0.95)
 
-        if m_open > 0.15:
-            # Open mouth (oval)
-            mh = int(m_open * 22) + 4
+        if m_open > 0.28:
+            # Expressive open mouth (talking/excited)
+            mh = int(m_open * 18.0) + 3
             for rd, bf in self.GLOW_LAYERS:
                 col = _dim_color(rgb, bf)
                 self.c.create_oval(
-                    cx - int(mw*0.5) - rd, cy - mh - rd,
-                    cx + int(mw*0.5) + rd, cy + mh + rd,
-                    fill="#000000", outline=col, width=2 + rd*0.2)
+                    mx - mw - rd, my - mh - rd,
+                    mx + mw + rd, my + mh + rd,
+                    fill="#05070B" if rd == 0 else "",
+                    outline=col, width=2.4 + rd*0.2
+                )
+            # Cute interior tongue arc
+            tongue_col = _dim_color((255, 120, 160), 0.75)
+            self.c.create_arc(
+                mx - int(mw*0.55), my - 2,
+                mx + int(mw*0.55), my + mh,
+                start=180, extent=180, style="chord",
+                fill=tongue_col, outline=""
+            )
         else:
-            # Curved line mouth: arc whose extent and direction encodes smile vs frown
+            # Sweet smooth curved smile: ‿
+            mh = max(5.0, abs(smile) * 18.0)
             if smile >= 0:
-                # Smile: upward curve
-                arc_h   = 20 + int(smile * 22)
-                extent  = 140 + int(smile * 30)
-                self._neon_arc(
-                    cx - mw, cy - arc_h,
-                    cx + mw, cy + arc_h,
-                    start=200, extent=extent, lw=2.5, rgb=rgb)
+                # Downward curve = smile ‿
+                for rd, bf in self.GLOW_LAYERS:
+                    col = _dim_color(rgb, bf)
+                    self.c.create_arc(
+                        mx - mw - rd, my - mh - rd,
+                        mx + mw + rd, my + mh + rd,
+                        start=180, extent=180, style="arc",
+                        outline=col, width=2.8 + rd*0.25
+                    )
             else:
-                # Frown: downward curve (flip arc)
-                arc_h   = 20 + int(abs(smile) * 22)
-                extent  = 140 + int(abs(smile) * 30)
-                self._neon_arc(
-                    cx - mw, cy - arc_h + 10,
-                    cx + mw, cy + arc_h + 10,
-                    start=20, extent=extent, lw=2.5, rgb=rgb)
+                # Upward curve = frown
+                for rd, bf in self.GLOW_LAYERS:
+                    col = _dim_color(rgb, bf)
+                    self.c.create_arc(
+                        mx - mw - rd, my - mh - rd,
+                        mx + mw + rd, my + mh + rd,
+                        start=0, extent=180, style="arc",
+                        outline=col, width=2.8 + rd*0.25
+                    )
 
-    # ── Sparkle ───────────────────────────────────────────────────────────────
-
-    def _draw_sparkle(self, cx, cy, rgb, size):
+    def _draw_sparkle(self, cx: float, cy: float, rgb, size: float):
         pulse = 0.6 + 0.4 * math.sin(self._sparkle_phase)
         s     = size * pulse
         col   = _dim_color(rgb, 0.9)
-        # Four-pointed star with thin lines
         for angle in (0, 90, 45, 135):
             rad = math.radians(angle)
             x1  = cx + s * math.cos(rad)
             y1  = cy + s * math.sin(rad)
             x2  = cx - s * math.cos(rad)
             y2  = cy - s * math.sin(rad)
-            xs1 = cx + s*0.35 * math.cos(rad + math.pi/4)
-            ys1 = cy + s*0.35 * math.sin(rad + math.pi/4)
-            xs2 = cx - s*0.35 * math.cos(rad + math.pi/4)
-            ys2 = cy - s*0.35 * math.sin(rad + math.pi/4)
             self.c.create_line(x1, y1, x2, y2, fill=col, width=1.3)
 
 
