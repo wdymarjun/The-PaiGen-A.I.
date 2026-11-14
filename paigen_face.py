@@ -951,147 +951,265 @@ class NeonFace:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Main App — Pokémon FireRed GBA Edition
+# Main App — Clean, Modern & Professional Desktop Interface
 # ─────────────────────────────────────────────────────────────────────────────
 class PaiGenApp:
-    W, H   = 1000, 600
-    CX, CY = 500,  190
+    DEFAULT_W, DEFAULT_H = 820, 780
 
-    # Pokémon FireRed Color Palette
-    COLOR_BG_DARK       = "#0D131D"  # GBA stadium dark navy
-    COLOR_CARD_BG       = "#FAFBFD"  # FireRed dialogue / card ivory
-    COLOR_CARD_BORDER   = "#0F172A"  # Dark navy pixel frame
-    COLOR_FIRERED       = "#DC2626"  # FireRed crimson
-    COLOR_FIRERED_DARK  = "#991B1B"  # Deep red shadow
-    COLOR_FIRERED_LIGHT = "#EF4444"  # Highlight red
-    COLOR_GOLD          = "#F59E0B"  # GBA Level gold
-    COLOR_EMERALD       = "#16A34A"  # HP green
-    COLOR_BLUE_EXP      = "#0284C7"  # EXP / Action blue
+    # Modern Dark Theme Palette
+    BG_WINDOW     = "#080B11"  # Deep obsidian
+    BG_PANEL      = "#0D111A"  # Dark navy panel
+    BG_CARD       = "#111827"  # Card background
+    BG_INPUT      = "#161F30"  # Text input background
+    BORDER_SUBTLE = "#1E293B"  # Subtle slate border
+    BORDER_FOCUS  = "#00E5FF"  # Neon cyan active focus
+    TEXT_PRIMARY  = "#F8FAFC"  # Crisp off-white
+    TEXT_MUTED    = "#94A3B8"  # Slate grey
+    ACCENT_CYAN   = "#00E5FF"  # PaiGen brand cyan
+    COLOR_SUCCESS = "#10B981"  # Active emerald green
+    COLOR_DANGER  = "#EF4444"  # Muted / danger red
 
     def __init__(self, root: tk.Tk):
         self.root = root
-        root.title("PaiGen AI — Pokémon FireRed Edition")
-        root.configure(bg="#0B0F17")
-        root.resizable(True, True)
+        root.title("PaiGen AI — Autonomous Living Companion")
+        root.configure(bg=self.BG_WINDOW)
+        root.geometry(f"{self.DEFAULT_W}x{self.DEFAULT_H}")
+        root.minsize(680, 640)
 
-        self.canvas = tk.Canvas(root, width=self.W, height=self.H,
-                                bg=self.COLOR_BG_DARK, highlightthickness=0)
+        # ── 1. Top Header Bar ────────────────────────────────────────────────
+        header = tk.Frame(root, bg=self.BG_PANEL, height=52)
+        header.pack(fill="x", side="top")
+        header.pack_propagate(False)
+
+        # Brand & Status Pill
+        brand_frame = tk.Frame(header, bg=self.BG_PANEL)
+        brand_frame.pack(side="left", padx=18, pady=10)
+
+        brand_lbl = tk.Label(
+            brand_frame, text="PAIGEN AI",
+            bg=self.BG_PANEL, fg=self.ACCENT_CYAN,
+            font=("Segoe UI", 12, "bold")
+        )
+        brand_lbl.pack(side="left")
+
+        self.status_pill = tk.Label(
+            brand_frame, text="● Online",
+            bg="#162032", fg="#38BDF8",
+            font=("Segoe UI", 9, "bold"),
+            padx=10, pady=2
+        )
+        self.status_pill.pack(side="left", padx=(14, 0))
+
+        # Hardware Controls (Camera & Mic Toggles)
+        controls_frame = tk.Frame(header, bg=self.BG_PANEL)
+        controls_frame.pack(side="right", padx=16, pady=8)
+
+        self.cam_btn = tk.Button(
+            controls_frame, text="📷 Camera: OFF",
+            bg="#1E293B", fg="#94A3B8",
+            activebackground="#334155", activeforeground="#FFFFFF",
+            font=("Segoe UI", 9, "bold"), relief="flat", bd=0,
+            padx=12, pady=4, cursor="hand2",
+            command=self._on_toggle_cam
+        )
+        self.cam_btn.pack(side="left", padx=6)
+
+        self.mic_btn = tk.Button(
+            controls_frame, text="🎤 Mic: OFF",
+            bg="#1E293B", fg="#94A3B8",
+            activebackground="#334155", activeforeground="#FFFFFF",
+            font=("Segoe UI", 9, "bold"), relief="flat", bd=0,
+            padx=12, pady=4, cursor="hand2",
+            command=self._on_toggle_mic
+        )
+        self.mic_btn.pack(side="left", padx=6)
+
+        # 1px border separator below header
+        sep = tk.Frame(root, bg=self.BORDER_SUBTLE, height=1)
+        sep.pack(fill="x", side="top")
+
+        # ── 2. Neon Face Canvas (Living Avatar) ──────────────────────────────
+        canvas_container = tk.Frame(root, bg="#05070B")
+        canvas_container.pack(fill="both", expand=True)
+
+        self.canvas = tk.Canvas(
+            canvas_container, bg="#05070B",
+            highlightthickness=0
+        )
         self.canvas.pack(fill="both", expand=True)
 
-        # Quick action tray and retro GBA command input
-        bottom_frame = tk.Frame(root, bg="#0B0F17")
-        bottom_frame.pack(fill="x", padx=16, pady=(0, 14))
+        # Responsive center coordinates
+        self.cx = self.DEFAULT_W // 2
+        self.cy = 160
+        self.face = NeonFace(self.canvas, self.cx, self.cy, face_r=112)
+        self.canvas.bind("<Configure>", self._on_canvas_resize)
 
-        # Row 1: Retro Quick-Action Badges
-        pills_frame = tk.Frame(bottom_frame, bg="#0B0F17")
-        pills_frame.pack(fill="x", pady=(0, 8))
+        # ── 3. Bottom Conversation & Interaction Hub ─────────────────────────
+        bottom_hub = tk.Frame(root, bg=self.BG_PANEL)
+        bottom_hub.pack(fill="x", side="bottom")
 
-        quick_actions = [
-            ("👁️ SEE SCREEN", "analyze my screen"),
-            ("🎬 PRIME MOVIE", "play my fault on prime video"),
-            ("🌐 NEW TAB", "open a new tab"),
-            ("💬 WHATSAPP", "send message to Rohit saying hello"),
-            ("📸 SCREENSHOT", "take screenshot"),
-            ("💤 SLEEP / WAKE", "toggle_sleep"),
+        # 1px border separator above hub
+        hub_sep = tk.Frame(bottom_hub, bg=self.BORDER_SUBTLE, height=1)
+        hub_sep.pack(fill="x", side="top")
+
+        # Conversation Card Container
+        chat_container = tk.Frame(bottom_hub, bg=self.BG_PANEL)
+        chat_container.pack(fill="x", padx=18, pady=(12, 6))
+
+        # Styled Chat History Text Box
+        self.chat_text = tk.Text(
+            chat_container, height=6, bg=self.BG_CARD,
+            fg=self.TEXT_PRIMARY, font=("Segoe UI", 9),
+            relief="flat", bd=0, wrap="word",
+            padx=12, pady=8, state="disabled",
+            highlightthickness=1, highlightbackground=self.BORDER_SUBTLE,
+            highlightcolor=self.BORDER_SUBTLE
+        )
+        self.chat_text.pack(fill="x")
+
+        # Configure Chat Tags for clean typography
+        self.chat_text.tag_configure("user", foreground="#38BDF8", font=("Segoe UI", 9, "bold"))
+        self.chat_text.tag_configure("assistant", foreground="#F1F5F9", font=("Segoe UI", 9))
+        self.chat_text.tag_configure("system", foreground="#94A3B8", font=("Segoe UI", 8, "italic"))
+        self.chat_text.tag_configure("action", foreground="#A78BFA", font=("Segoe UI", 9, "bold"))
+
+        # Quick Action Chips Row
+        chips_frame = tk.Frame(bottom_hub, bg=self.BG_PANEL)
+        chips_frame.pack(fill="x", padx=18, pady=(4, 8))
+
+        quick_chips = [
+            ("👁️ Analyze Screen", "analyze my screen"),
+            ("📸 Take Screenshot", "take screenshot"),
+            ("🌐 Open Browser", "open a new tab"),
+            ("💬 WhatsApp Message", "send message to Rohit saying hello"),
+            ("💤 Sleep / Wake", "toggle_sleep"),
         ]
 
-        for label, cmd in quick_actions:
+        for label, cmd in quick_chips:
             if cmd == "toggle_sleep":
-                action_fn = self._toggle_run
+                cmd_fn = self._toggle_sleep
             else:
-                action_fn = lambda c=cmd: self._quick_send(c)
+                cmd_fn = lambda c=cmd: self._quick_action(c)
             btn = tk.Button(
-                pills_frame, text=label, bg="#1E293B", fg="#E2E8F0",
-                font=("Consolas", 8, "bold"), relief="flat", bd=0,
-                padx=10, pady=4, cursor="hand2",
-                activebackground="#DC2626", activeforeground="#FFFFFF",
-                command=action_fn
+                chips_frame, text=label, bg="#162032", fg="#94A3B8",
+                activebackground="#1E293B", activeforeground="#F8FAFC",
+                font=("Segoe UI", 8, "bold"), relief="flat", bd=0,
+                padx=10, pady=3, cursor="hand2", command=cmd_fn
             )
-            btn.pack(side="left", padx=4)
+            btn.pack(side="left", padx=(0, 6))
 
-        # Row 2: Classic FireRed Action Input Bar
-        input_frame = tk.Frame(bottom_frame, bg="#0B0F17")
-        input_frame.pack(fill="x")
-
-        prompt_lbl = tk.Label(
-            input_frame, text="▶ What will PAIGEN do? ",
-            bg="#0B0F17", fg="#F59E0B",
-            font=("Consolas", 11, "bold")
-        )
-        prompt_lbl.pack(side="left", padx=(0, 6))
+        # Input & Execution Bar
+        input_frame = tk.Frame(bottom_hub, bg=self.BG_PANEL)
+        input_frame.pack(fill="x", padx=18, pady=(0, 14))
 
         self.entry = tk.Entry(
-            input_frame, bg="#0F172A", fg="#38BDF8",
-            insertbackground="#F59E0B",
-            font=("Consolas", 12), relief="flat", bd=0,
-            highlightthickness=1, highlightcolor="#DC2626",
-            highlightbackground="#334155"
+            input_frame, bg=self.BG_INPUT, fg="#FFFFFF",
+            insertbackground=self.ACCENT_CYAN,
+            font=("Segoe UI", 10), relief="flat", bd=0,
+            highlightthickness=1, highlightcolor=self.ACCENT_CYAN,
+            highlightbackground=self.BORDER_SUBTLE
         )
-        self.entry.pack(side="left", fill="x", expand=True, ipady=6, padx=(0, 10))
+        self.entry.pack(side="left", fill="x", expand=True, ipady=7, padx=(0, 10))
         self.entry.bind("<Return>", self._send)
+        self.entry.focus_set()
 
-        tk.Button(
-            input_frame, text="[ 🅰️  EXECUTE ]", bg="#DC2626", fg="#FFFFFF",
-            font=("Consolas", 10, "bold"), relief="flat", bd=0,
-            padx=16, pady=5, cursor="hand2",
-            activebackground="#B91C1C", activeforeground="#FFFFFF",
+        self.send_btn = tk.Button(
+            input_frame, text="Send", bg="#0284C7", fg="#FFFFFF",
+            activebackground="#0369A1", activeforeground="#FFFFFF",
+            font=("Segoe UI", 9, "bold"), relief="flat", bd=0,
+            padx=18, pady=6, cursor="hand2",
             command=lambda: self._send(None)
-        ).pack(side="left")
+        )
+        self.send_btn.pack(side="left")
 
-        self.face = NeonFace(self.canvas, self.CX, self.CY, face_r=115)
-        self._chat_lines: List[str] = [
-            "🔴 PAIGEN: Ready for orders, Trainer Arjun!",
-            "Type a command or choose a battle move below."
-        ]
-        self._blink_counter = 0
-        self._turn_count = 1
+        # Global Hotkey Bindings
+        self.root.bind("<c>", lambda e: self._on_toggle_cam())
+        self.root.bind("<C>", lambda e: self._on_toggle_cam())
+        self.root.bind("<m>", lambda e: self._on_toggle_mic())
+        self.root.bind("<M>", lambda e: self._on_toggle_mic())
 
-        # Camera & Microphone hotkey bindings
-        self.root.bind("<c>", lambda e: toggle_camera())
-        self.root.bind("<C>", lambda e: toggle_camera())
-        self.root.bind("<m>", lambda e: toggle_mic())
-        self.root.bind("<M>", lambda e: toggle_mic())
-
-        # Canvas Click Handler
-        def _on_canvas_click(event):
-            x, y = event.x, event.y
-            # 1. Camera toggle button: (x: 672 to 815, y: 44 to 70)
-            if 672 <= x <= 815 and 44 <= y <= 70:
-                toggle_camera()
-            # 2. Mic toggle button: (x: 825 to 968, y: 44 to 70)
-            elif 825 <= x <= 968 and 44 <= y <= 70:
-                toggle_mic()
-            # 3. FIGHT (Focus Chat): (x: 672 to 818, y: 402 to 485)
-            elif 672 <= x <= 818 and 402 <= y <= 485:
-                self.entry.focus_set()
-            # 4. BAG (Knowledge): (x: 827 to 973, y: 402 to 485)
-            elif 827 <= x <= 973 and 402 <= y <= 485:
-                self._quick_send("What knowledge topics do you know?")
-            # 5. POKéMON (See Screen): (x: 672 to 818, y: 495 to 578)
-            elif 672 <= x <= 818 and 495 <= y <= 578:
-                self._quick_send("analyze my screen")
-            # 6. RUN (Sleep/Wake): (x: 827 to 973, y: 495 to 578)
-            elif 827 <= x <= 973 and 495 <= y <= 578:
-                self._toggle_run()
-
-        self.canvas.bind("<Button-1>", _on_canvas_click)
+        self._append_chat("PaiGen AI initialized and ready.", tag="system")
+        self._sync_hw_buttons()
 
         self._start_threads()
         self._loop()
 
-    def _quick_send(self, cmd: str):
+    def _on_canvas_resize(self, event):
+        self.cx = event.width // 2
+        self.cy = event.height // 2
+        self.face.cx = self.cx
+        self.face.cy = self.cy
+
+    def _on_toggle_cam(self):
+        toggle_camera()
+        self._sync_hw_buttons()
+
+    def _on_toggle_mic(self):
+        toggle_mic()
+        self._sync_hw_buttons()
+
+    def _sync_hw_buttons(self):
+        if state.camera_enabled:
+            self.cam_btn.configure(
+                text="📷 Camera: ON", bg="#064E3B", fg="#6EE7B7",
+                activebackground="#047857"
+            )
+        else:
+            self.cam_btn.configure(
+                text="📷 Camera: OFF (C)", bg="#1E293B", fg="#94A3B8",
+                activebackground="#334155"
+            )
+
+        if state.mic_enabled:
+            self.mic_btn.configure(
+                text="🎤 Mic: ON", bg="#064E3B", fg="#6EE7B7",
+                activebackground="#047857"
+            )
+        else:
+            self.mic_btn.configure(
+                text="🎤 Mic: MUTED (M)", bg="#1E293B", fg="#94A3B8",
+                activebackground="#334155"
+            )
+
+    def _toggle_sleep(self):
+        state.last_interaction = time.time()
+        if state.emotion == Emotion.SLEEPING:
+            _set_emotion(Emotion.HAPPY)
+            self._append_chat("PaiGen is awake and ready.", tag="system")
+        else:
+            _set_emotion(Emotion.SLEEPING)
+            self._append_chat("PaiGen entered sleep mode.", tag="system")
+
+    def _quick_action(self, cmd: str):
         self.entry.delete(0, "end")
         self.entry.insert(0, cmd)
         self._send(None)
 
-    def _toggle_run(self):
+    def _append_chat(self, text: str, tag: str = "assistant"):
+        self.chat_text.configure(state="normal")
+        if tag == "user":
+            self.chat_text.insert("end", f"You: {text}\n", "user")
+        elif tag == "system":
+            self.chat_text.insert("end", f"◈ {text}\n", "system")
+        elif tag == "action":
+            self.chat_text.insert("end", f"⚡ {text}\n", "action")
+        else:
+            self.chat_text.insert("end", f"PaiGen: {text}\n", "assistant")
+        self.chat_text.see("end")
+        self.chat_text.configure(state="disabled")
+
+    def _send(self, _event):
+        text = self.entry.get().strip()
+        if not text:
+            return
+        self.entry.delete(0, "end")
         state.last_interaction = time.time()
         if state.emotion == Emotion.SLEEPING:
-            _set_emotion(Emotion.HAPPY)
-            ui_msg_q.put("⚡ Waking up PaiGen!")
+            _set_emotion(Emotion.SURPRISED)
         else:
-            _set_emotion(Emotion.SLEEPING)
-            ui_msg_q.put("💤 PaiGen entered sleep mode.")
+            _set_emotion(Emotion.THINKING)
+        self._append_chat(text, tag="user")
+        chat_q.put(text)
 
     def _start_threads(self):
         threads = [_tts_worker, _camera_worker, _mic_worker, _brain_worker]
@@ -1100,210 +1218,86 @@ class PaiGenApp:
         for fn in threads:
             threading.Thread(target=fn, daemon=True).start()
 
-    def _send(self, _event):
-        text = self.entry.get().strip()
-        if not text: return
-        self.entry.delete(0, "end")
-        self._turn_count += 1
-        state.last_interaction = time.time()
-        if state.emotion == Emotion.SLEEPING:
-            _set_emotion(Emotion.SURPRISED)
-        else:
-            _set_emotion(Emotion.THINKING)
-        ui_msg_q.put(f"🧑 TRAINER: {text}")
-        chat_q.put(text)
-
     def _loop(self):
-        # Drain messages
+        # Process UI message queue
         while not ui_msg_q.empty():
             try:
                 msg = ui_msg_q.get_nowait()
-                if not (msg.startswith("🧑") or msg.startswith("🔴") or msg.startswith("🤖")):
-                    msg = f"◈ {msg}"
-                self._chat_lines.append(msg)
-                if len(self._chat_lines) > 4:
-                    self._chat_lines.pop(0)
+                if msg.startswith("🧑 TRAINER:") or msg.startswith("You:"):
+                    clean = msg.split(":", 1)[1].strip()
+                    self._append_chat(clean, tag="user")
+                elif msg.startswith("🔴 PAIGEN:") or msg.startswith("🤖"):
+                    clean = msg.replace("🔴 PAIGEN:", "").replace("🤖", "").strip()
+                    self._append_chat(clean, tag="assistant")
+                elif msg.startswith("⚡") or msg.startswith("📷") or msg.startswith("🎤"):
+                    self._append_chat(msg, tag="action")
+                else:
+                    self._append_chat(msg, tag="system")
             except queue.Empty:
                 break
 
-        self._blink_counter = (self._blink_counter + 1) % 24
+        # Update Live Status Pill
+        em = state.emotion
+        if em == Emotion.SLEEPING:
+            self.status_pill.configure(text="● Sleeping (zzz)", bg="#1E293B", fg="#94A3B8")
+        elif state.speaking or em == Emotion.SPEAKING:
+            self.status_pill.configure(text="● Speaking", bg="#064E3B", fg="#6EE7B7")
+        elif state.is_listening or em == Emotion.LISTENING:
+            self.status_pill.configure(text="● Listening...", bg="#4C1D95", fg="#DDD6FE")
+        elif state.is_analyzing_voice or em == Emotion.THINKING:
+            self.status_pill.configure(text="● Thinking...", bg="#78350F", fg="#FDE68A")
+        else:
+            self.status_pill.configure(text="● Online", bg="#162032", fg="#38BDF8")
 
-        # Push emotion target into face
-        self.face.update_target(state.target_emotion
-                                if state.target_emotion != state.emotion
-                                else state.emotion)
+        # Update Face Lerp & Tick
+        self.face.update_target(
+            state.target_emotion
+            if state.target_emotion != state.emotion
+            else state.emotion
+        )
         self.face.tick_animate()
 
-        # Draw
+        # Render Scene
         self.canvas.delete("all")
         self._draw_scene()
         self.root.after(38, self._loop)   # ~26 fps
 
     def _draw_scene(self):
-        c   = self.canvas
+        c = self.canvas
         rgb = self.face._cur_rgb
-        em  = state.emotion
+        em = state.emotion
 
-        # ── 1. Pokémon FireRed Arena Background ──────────────────────────────
-        # Horizon & arena grid
-        c.create_rectangle(0, 0, self.W, 335, fill="#0D131D", outline="")
-        c.create_rectangle(0, 335, self.W, self.H, fill="#080C14", outline="")
-        c.create_line(0, 335, self.W, 335, fill="#1E293B", width=2)
+        # Pure, sleek background canvas with subtle dark radial vibe
+        w = self.canvas.winfo_width() or self.DEFAULT_W
+        h = self.canvas.winfo_height() or 340
+        c.create_rectangle(0, 0, w, h, fill="#05070B", outline="")
 
-        # ── 2. Grass / Stadium Battle Platform (Oval Arena Ground) ───────────
-        cx, cy, rx, ry = 500, 305, 210, 38
-        # Shadow
-        c.create_oval(cx - rx - 8, cy - ry + 8, cx + rx + 8, cy + ry + 12, fill="#051208", outline="")
-        # Outer court grass
-        c.create_oval(cx - rx, cy - ry, cx + rx, cy + ry, fill="#14532D", outline="#15803D", width=2)
-        # Inner court grass
-        c.create_oval(cx - rx + 16, cy - ry + 4, cx + rx - 16, cy + ry - 4, fill="#16A34A", outline="#4ADE80", width=1.5)
-        # Center court ring
-        c.create_oval(cx - rx + 45, cy - ry + 10, cx + rx - 45, cy + ry - 10, fill="#22C55E", outline="#86EFAC", width=1)
-
-        # ── 3. PaiGen Animated Neon Face ─────────────────────────────────────
+        # PaiGen Animated Neon Face
         self.face.draw()
 
-        # Sleeping Zzz particle animation
+        # Sleeping 'Zzz' particles
         if em == Emotion.SLEEPING:
-            z_phase = (self._blink_counter * 0.25)
-            c.create_text(self.CX - 85, self.CY - 70 - int(z_phase * 4), text="Z", fill="#A78BFA", font=("Consolas", 16, "bold"))
-            c.create_text(self.CX - 65, self.CY - 90 - int(z_phase * 4), text="z", fill="#C4B5FD", font=("Consolas", 12, "bold"))
-            c.create_text(self.CX - 45, self.CY - 105 - int(z_phase * 4), text="z", fill="#DDD6FE", font=("Consolas", 9, "bold"))
+            tick = self.face.tick % 60
+            z_offset = tick * 0.4
+            c.create_text(self.cx - 80, self.cy - 70 - z_offset, text="Z", fill="#818CF8", font=("Segoe UI", 15, "bold"))
+            c.create_text(self.cx - 60, self.cy - 85 - z_offset, text="z", fill="#A5B4FC", font=("Segoe UI", 11, "bold"))
+            c.create_text(self.cx - 42, self.cy - 97 - z_offset, text="z", fill="#C7D2FE", font=("Segoe UI", 8, "bold"))
 
-        # ── 4. Top-Left: PaiGen HP / Status Card (GBA Pokémon Battle HUD) ─────
-        x1, y1, x2, y2 = 20, 16, 340, 108
-        # Beveled Card frame
-        c.create_rectangle(x1, y1, x2, y2, fill=self.COLOR_CARD_BG, outline=self.COLOR_CARD_BORDER, width=3)
-        c.create_rectangle(x1 + 3, y1 + 3, x2 - 3, y2 - 3, outline=self.COLOR_FIRERED, width=2)
-        # Corner accent notch
-        c.create_rectangle(x2 - 12, y1 + 3, x2 - 3, y1 + 12, fill=self.COLOR_FIRERED, outline="")
-
-        # Name and Level
-        c.create_text(x1 + 14, y1 + 18, text="PAIGEN AI", fill="#0F172A", font=("Consolas", 11, "bold"), anchor="w")
-        # Level Badge
-        c.create_rectangle(x1 + 115, y1 + 9, x1 + 175, y1 + 25, fill="#F59E0B", outline="#B45309", width=1)
-        c.create_text(x1 + 145, y1 + 17, text=":L 100", fill="#000000", font=("Consolas", 9, "bold"))
-
-        # Status condition badge
-        st_map = {
-            Emotion.SLEEPING:  ("SLP", "#7C3AED"),
-            Emotion.THINKING:  ("THK", "#D97706"),
-            Emotion.SPEAKING:  ("SPK", "#16A34A"),
-            Emotion.LISTENING: ("LST", "#0284C7"),
-            Emotion.HAPPY:     ("HAP", "#059669"),
-            Emotion.IDLE:      ("OK",  "#0D9488"),
-        }
-        st_txt, st_col = st_map.get(em, (em.name[:3], "#475569"))
-        c.create_rectangle(x2 - 58, y1 + 9, x2 - 16, y1 + 25, fill=st_col, outline="#0F172A", width=1)
-        c.create_text(x2 - 37, y1 + 17, text=st_txt, fill="#FFFFFF", font=("Consolas", 8, "bold"))
-
-        # HP Bar
-        c.create_text(x1 + 14, y1 + 45, text="HP:", fill="#0F172A", font=("Consolas", 9, "bold"), anchor="w")
-        hp_x1, hp_x2, hp_y = x1 + 45, x2 - 75, y1 + 42
-        c.create_rectangle(hp_x1, hp_y - 4, hp_x2, hp_y + 6, fill="#334155", outline="#0F172A", width=1)
-        # HP fill color based on sleep / interaction
-        idle_time = time.time() - state.last_interaction
-        hp_col = "#EF4444" if em == Emotion.SLEEPING else ("#EAB308" if idle_time > 35.0 else "#10B981")
-        hp_pct = 0.35 if em == Emotion.SLEEPING else (0.70 if idle_time > 35.0 else 1.0)
-        c.create_rectangle(hp_x1 + 1, hp_y - 3, hp_x1 + int((hp_x2 - hp_x1 - 2) * hp_pct), hp_y + 5, fill=hp_col, outline="")
-        c.create_text(x2 - 14, y1 + 45, text="100/100", fill="#475569", font=("Consolas", 8), anchor="e")
-
-        # EXP Bar
-        c.create_text(x1 + 14, y1 + 72, text="EXP:", fill="#0F172A", font=("Consolas", 8, "bold"), anchor="w")
-        exp_x1, exp_x2, exp_y = x1 + 45, x2 - 16, y1 + 72
-        c.create_rectangle(exp_x1, exp_y - 3, exp_x2, exp_y + 3, fill="#334155", outline="#0F172A", width=1)
-        exp_fill = min(1.0, (self._turn_count * 0.12) % 1.0 + 0.25)
-        c.create_rectangle(exp_x1 + 1, exp_y - 2, exp_x1 + int((exp_x2 - exp_x1 - 2) * exp_fill), exp_y + 2, fill="#38BDF8", outline="")
-
-        # ── 5. Top-Right: Trainer Arjun & Sensory Pokédex Card ────────────────
-        tx1, ty1, tx2, ty2 = 660, 16, 980, 108
-        c.create_rectangle(tx1, ty1, tx2, ty2, fill=self.COLOR_CARD_BG, outline=self.COLOR_CARD_BORDER, width=3)
-        c.create_rectangle(tx1 + 3, ty1 + 3, tx2 - 3, ty2 - 3, outline=self.COLOR_FIRERED, width=2)
-        c.create_rectangle(tx1 + 3, ty1 + 3, tx1 + 12, ty1 + 12, fill=self.COLOR_FIRERED, outline="")
-
-        # Trainer Header
-        c.create_text(tx1 + 16, ty1 + 18, text="🔴 TRAINER: Arjun", fill="#0F172A", font=("Consolas", 10, "bold"), anchor="w")
+        # Subtle dynamic perception info below face
+        info_text = ""
         if state.detected_user_emotion:
-            c.create_text(tx2 - 14, ty1 + 18, text=f"feel: {state.detected_user_emotion}", fill="#64748B", font=("Consolas", 8), anchor="e")
+            info_text = f"Perception: seeing you {state.detected_user_emotion}"
+        elif state.vision_description:
+            info_text = f"Perception: {state.vision_description[:75]}..."
+        elif state.status_line and state.status_line != "PaiGen online":
+            info_text = state.status_line
 
-        # Camera Button
-        cam_active = state.camera_enabled
-        cam_bg = "#16A34A" if cam_active else "#DC2626"
-        cam_lbl = "📷 CAM: ON" if cam_active else "📷 CAM: OFF"
-        c.create_rectangle(tx1 + 14, ty1 + 38, tx1 + 155, ty1 + 62, fill=cam_bg, outline="#0F172A", width=1)
-        c.create_text(tx1 + 84, ty1 + 50, text=cam_lbl, fill="#FFFFFF", font=("Consolas", 8, "bold"))
-
-        # Mic Button
-        mic_active = state.mic_enabled
-        mic_bg = "#16A34A" if mic_active else "#64748B"
-        mic_lbl = "🎤 MIC: ON" if mic_active else "🎤 MIC: MUTED"
-        c.create_rectangle(tx1 + 165, ty1 + 38, tx2 - 14, ty1 + 62, fill=mic_bg, outline="#0F172A", width=1)
-        c.create_text(tx1 + 235, ty1 + 50, text=mic_lbl, fill="#FFFFFF", font=("Consolas", 8, "bold"))
-
-        # Motion Bar
-        c.create_text(tx1 + 14, ty1 + 82, text="MOTION:", fill="#0F172A", font=("Consolas", 8, "bold"), anchor="w")
-        m_x1, m_x2, m_y = tx1 + 65, tx2 - 14, ty1 + 82
-        c.create_rectangle(m_x1, m_y - 3, m_x2, m_y + 3, fill="#334155", outline="#0F172A", width=1)
-        mx = max(0.0, min(1.0, state.motion_score / 55.0))
-        if mx > 0:
-            c.create_rectangle(m_x1 + 1, m_y - 2, m_x1 + int((m_x2 - m_x1 - 2) * mx), m_y + 2, fill="#F59E0B", outline="")
-
-        # ── 6. Bottom-Left: Pokémon FireRed Battle Dialogue Window ────────────
-        dx1, dy1, dx2, dy2 = 20, 395, 650, 585
-        # Frame with double FireRed outline
-        c.create_rectangle(dx1, dy1, dx2, dy2, fill=self.COLOR_CARD_BG, outline=self.COLOR_CARD_BORDER, width=4)
-        c.create_rectangle(dx1 + 4, dy1 + 4, dx2 - 4, dy2 - 4, outline=self.COLOR_FIRERED, width=2)
-        # Dialogue Header banner
-        c.create_rectangle(dx1 + 14, dy1 - 10, dx1 + 190, dy1 + 10, fill=self.COLOR_FIRERED, outline=self.COLOR_CARD_BORDER, width=2)
-        c.create_text(dx1 + 102, dy1, text="💬 BATTLE LOG", fill="#FFFFFF", font=("Consolas", 9, "bold"))
-
-        # Dialogue text lines
-        y_text = dy1 + 28
-        for line in self._chat_lines[-4:]:
-            if line.startswith("🧑"):
-                txt_col = "#1E3A8A"  # Deep blue for Trainer
-            elif line.startswith("🔴") or line.startswith("🤖"):
-                txt_col = "#991B1B"  # Deep crimson for PaiGen
-            else:
-                txt_col = "#334155"  # Slate for status
-            c.create_text(dx1 + 20, y_text, text=line, fill=txt_col, font=("Consolas", 9, "bold"), anchor="w", width=dx2 - dx1 - 40)
-            y_text += 26
-
-        # Flashing GBA Action Arrow Indicator
-        if self._blink_counter < 14:
-            c.create_polygon(dx2 - 32, dy2 - 24, dx2 - 16, dy2 - 24, dx2 - 24, dy2 - 14, fill=self.COLOR_FIRERED, outline="#000000")
-
-        # Bottom ticker in dialogue box
-        c.create_text(dx1 + 20, dy2 - 16, text=f"◈ {state.status_line}", fill="#64748B", font=("Consolas", 8), anchor="w")
-
-        # ── 7. Bottom-Right: Iconic Pokémon FireRed 4-Box Command Menu ───────
-        mx1, my1, mx2, my2 = 665, 395, 980, 585
-        # Container frame
-        c.create_rectangle(mx1, my1, mx2, my2, fill=self.COLOR_CARD_BG, outline=self.COLOR_CARD_BORDER, width=4)
-        c.create_rectangle(mx1 + 4, my1 + 4, mx2 - 4, my2 - 4, outline=self.COLOR_FIRERED, width=2)
-
-        # 4 Quadrants
-        # Top-Left: FIGHT
-        c.create_rectangle(mx1 + 8, my1 + 8, mx1 + 150, my1 + 88, fill="#DC2626", outline="#7F1D1D", width=2)
-        c.create_text(mx1 + 79, my1 + 38, text="⚔️ FIGHT", fill="#FFFFFF", font=("Consolas", 12, "bold"))
-        c.create_text(mx1 + 79, my1 + 58, text="[Chat/Command]", fill="#FECACA", font=("Consolas", 8))
-
-        # Top-Right: BAG
-        c.create_rectangle(mx1 + 158, my1 + 8, mx2 - 8, my1 + 88, fill="#D97706", outline="#78350F", width=2)
-        c.create_text(mx1 + 233, my1 + 38, text="🎒 BAG", fill="#FFFFFF", font=("Consolas", 12, "bold"))
-        c.create_text(mx1 + 233, my1 + 58, text="[Knowledge]", fill="#FEF3C7", font=("Consolas", 8))
-
-        # Bottom-Left: POKéMON (Screen Vision)
-        c.create_rectangle(mx1 + 8, my1 + 96, mx1 + 150, my2 - 8, fill="#059669", outline="#064E3B", width=2)
-        c.create_text(mx1 + 79, my1 + 126, text="👁️ POKéMON", fill="#FFFFFF", font=("Consolas", 11, "bold"))
-        c.create_text(mx1 + 79, my1 + 146, text="[See Screen]", fill="#D1FAE5", font=("Consolas", 8))
-
-        # Bottom-Right: RUN (Sleep / Wake)
-        run_txt = "RUN (Wake)" if em == Emotion.SLEEPING else "🏃 RUN"
-        c.create_rectangle(mx1 + 158, my1 + 96, mx2 - 8, my2 - 8, fill="#2563EB", outline="#1E3A8A", width=2)
-        c.create_text(mx1 + 233, my1 + 126, text=run_txt, fill="#FFFFFF", font=("Consolas", 11, "bold"))
-        c.create_text(mx1 + 233, my1 + 146, text="[Sleep/Wake]", fill="#DBEAFE", font=("Consolas", 8))
+        if info_text:
+            c.create_text(
+                self.cx, h - 20, text=info_text,
+                fill=_dim_color(rgb, 0.45),
+                font=("Segoe UI", 8)
+            )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
