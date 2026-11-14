@@ -469,6 +469,25 @@ def _acoustic_clap_worker():
 
     except Exception as e:
         print(f"[Acoustic Clap Detector] paused: {e}")
+
+_VOSK_MODEL = None
+
+def _transcribe_with_vosk(audio) -> Optional[str]:
+    """Transcribes audio using local Vosk model cached in ~/.cache/vosk/ or model/ folder."""
+    global _VOSK_MODEL
+    try:
+        import vosk
+        if _VOSK_MODEL is None:
+            _VOSK_MODEL = vosk.Model(lang="en-us")
+        rec = vosk.KaldiRecognizer(_VOSK_MODEL, 16000)
+        raw_bytes = audio.get_raw_data(convert_rate=16000, convert_width=2)
+        rec.AcceptWaveform(raw_bytes)
+        res = json.loads(rec.FinalResult())
+        txt = res.get("text", "").strip()
+        return txt if txt else None
+    except Exception:
+        return None
+
 def _mic_worker():
     if not SR_OK: return
     r = sr.Recognizer()
@@ -537,10 +556,12 @@ def _mic_worker():
                 pass
 
         if not text and voice_backend in ("vosk", "auto"):
-            try:
-                text = r.recognize_vosk(audio)
-            except Exception:
-                pass
+            text = _transcribe_with_vosk(audio)
+            if not text:
+                try:
+                    text = r.recognize_vosk(audio)
+                except Exception:
+                    pass
 
         if not text and voice_backend in ("sphinx", "auto"):
             try:
