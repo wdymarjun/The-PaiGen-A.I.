@@ -17,13 +17,15 @@ Runs an asynchronous HTTP/WebSocket server on port 8765:
 """
 
 import asyncio
+import base64
 import io
 import json
 import logging
 import os
 import socket
 import time
-from aiohttp import web
+from typing import Set
+from aiohttp import WSMsgType, web
 
 from paigen.mobile.remote_control import RemotePCController
 from paigen.mobile.telephony_bridge import TelephonyBridge
@@ -34,6 +36,22 @@ logger = logging.getLogger("PaiGenGateway")
 
 controller = RemotePCController()
 telephony = TelephonyBridge.get_instance()
+WS_CLIENTS: Set[web.WebSocketResponse] = set()
+
+
+async def broadcast_ws_event(event_type: str, payload: dict):
+    """Pushes real-time events (incoming call alerts, PC updates) to connected Android APK clients."""
+    if not WS_CLIENTS:
+        return
+    msg = json.dumps({"type": event_type, "data": payload, "ts": time.time()}, ensure_ascii=False)
+    dead = []
+    for ws in list(WS_CLIENTS):
+        try:
+            await ws.send_str(msg)
+        except Exception:
+            dead.append(ws)
+    for ws in dead:
+        WS_CLIENTS.discard(ws)
 
 
 def get_local_ip() -> str:
@@ -628,14 +646,229 @@ async def handle_tts(request: web.Request) -> web.Response:
     return web.Response(body=mp3_data, content_type="audio/mpeg")
 
 
+async def handle_ping(request: web.Request) -> web.Response:
+    """Fast connectivity health check for the Android APK auto-discovery."""
+    return web.json_response({"status": "online", "service": "PaiGen AI Gateway", "version": "4.0"})
+
+
+async def handle_pc_stats(request: web.Request) -> web.Response:
+    """Returns live workstation telemetry & screened call counts."""
+    loop = asyncio.get_event_loop()
+    stats = await loop.run_in_executor(None, controller.get_system_stats)
+    calls = await loop.run_in_executor(None, telephony.list_calls, 10)
+    stats["recent_calls_count"] = len(calls)
+    stats["ws_clients"] = len(WS_CLIENTS)
+    return web.json_response(stats)
+
+
+async def handle_pc_input(request: web.Request) -> web.Response:
+    """Executes remote mouse click, scroll, keyboard typing, or hotkey from the mobile app."""
+    try:
+        data = await request.json()
+        loop = asyncio.get_event_loop()
+        res = await loop.run_in_executor(
+            None,
+            controller.execute_pc_input,
+            data.get("input_type", ""),
+            data.get("x_norm", 0.5),
+            data.get("y_norm", 0.5),
+            data.get("text", ""),
+            data.get("key", ""),
+        )
+        return web.json_response(res)
+    except Exception as e:
+        return web.json_response({"status": "error", "message": str(e)}, status=500)
+
+
+async def handle_psychology_analyze(request: web.Request) -> web.Response:
+    """Runs sub-5ms ML + cognitive psychological analysis for mobile app / call dashboard."""
+    try:
+        data = await request.json()
+        text = data.get("text", "")
+        speaker_role = data.get("speaker_role", "caller")
+        preferred_lang = data.get("preferred_lang", "auto")
+        from paigen.brain.psychology import PsychologicalEngine
+        prof = PsychologicalEngine.get_instance().analyze(
+            text, speaker_role=speaker_role, preferred_lang=preferred_lang
+        )
+        return web.json_response({"status": "success", "profile": prof.model_dump()})
+    except Exception as e:
+        return web.json_response({"status": "error", "message": str(e)}, status=500)
+
+
+async def handle_telephony_session_start(request: web.Request) -> web.Response:
+    """Starts an AI-handled call session when Arjun approves 'Should I talk?'."""
+    try:
+        data = await request.json()
+        loop = asyncio.get_event_loop()
+        res = await loop.run_in_executor(
+            None,
+            telephony.start_call_session,
+            data.get("caller_id", "Unknown"),
+            data.get("caller_name", "Incoming Caller"),
+            data.get("preferred_lang", "hi"),
+        )
+        await broadcast_ws_event("call_session_started", res)
+        return web.json_response({"status": "success", "data": res})
+    except Exception as e:
+        return web.json_response({"status": "error", "message": str(e)}, status=500)
+
+
+async def handle_telephony_converse(request: web.Request) -> web.Response:
+    """Handles live multi-turn Hindi/English conversation with an incoming caller."""
+    try:
+        data = await request.json()
+        loop = asyncio.get_event_loop()
+        res = await loop.run_in_executor(
+            None,
+            telephony.converse_on_call,
+            data.get("caller_speech", ""),
+            data.get("call_id"),
+            data.get("caller_id", "Unknown"),
+            data.get("caller_name", "Incoming Caller"),
+            data.get("history"),
+            data.get("preferred_lang", "auto"),
+            bool(data.get("include_audio", True)),
+        )
+        await broadcast_ws_event("call_turn", {k: v for k, v in res.items() if k != "audio_base64"})
+        return web.json_response({"status": "success", "data": res})
+    except Exception as e:
+        logger.error(f"Telephony converse error: {e}")
+        return web.json_response({"status": "error", "message": str(e)}, status=500)
+
+
+async def handle_telephony_recording_upload(request: web.Request) -> web.Response:
+    """Stores recorded call audio (.m4a/.wav) sent from the Android APK."""
+    try:
+        audio_bytes = b""
+        call_id = None
+        caller_id = "Unknown"
+        caller_name = "Recorded Call"
+        filename_hint = "call.m4a"
+        duration_sec = 0.0
+        transcript = ""
+
+        if request.content_type and "multipart/" in request.content_type:
+            reader = await request.multipart()
+            while True:
+                part = await reader.next()
+                if part is None:
+                    break
+                if part.name == "audio":
+                    filename_hint = part.filename or "call.m4a"
+                    audio_bytes = await part.read()
+                elif part.name == "call_id":
+                    val = (await part.text()).strip()
+                    call_id = int(val) if val.isdigit() else None
+                elif part.name == "caller_id":
+                    caller_id = await part.text()
+                elif part.name == "caller_name":
+                    caller_name = await part.text()
+                elif part.name == "duration_sec":
+                    try:
+                        duration_sec = float(await part.text())
+                    except ValueError:
+                        duration_sec = 0.0
+                elif part.name == "transcript":
+                    transcript = await part.text()
+        else:
+            data = await request.json()
+            b64 = data.get("audio_base64", "")
+            audio_bytes = base64.b64decode(b64) if b64 else b""
+            call_id = data.get("call_id")
+            caller_id = data.get("caller_id", caller_id)
+            caller_name = data.get("caller_name", caller_name)
+            filename_hint = data.get("filename", filename_hint)
+            duration_sec = float(data.get("duration_sec", 0.0))
+            transcript = data.get("transcript", "")
+
+        if not audio_bytes:
+            return web.json_response({"status": "error", "message": "Empty audio payload"}, status=400)
+
+        loop = asyncio.get_event_loop()
+        res = await loop.run_in_executor(
+            None,
+            telephony.save_call_recording,
+            audio_bytes,
+            call_id,
+            caller_id,
+            caller_name,
+            filename_hint,
+            duration_sec,
+            transcript,
+        )
+        await broadcast_ws_event("call_recorded", res)
+        return web.json_response(res)
+    except Exception as e:
+        logger.error(f"Recording upload error: {e}")
+        return web.json_response({"status": "error", "message": str(e)}, status=500)
+
+
+async def handle_telephony_recording_get(request: web.Request) -> web.Response:
+    """Streams a stored call recording back to the app or dashboard."""
+    filename = request.match_info.get("filename", "")
+    path = telephony.get_recording_path(filename)
+    if path is None:
+        return web.Response(status=404, text="Recording not found")
+    return web.FileResponse(path)
+
+
+async def handle_ws(request: web.Request) -> web.WebSocketResponse:
+    """Persistent bidirectional WebSocket link for the Android APK and live PC alerts."""
+    ws = web.WebSocketResponse(heartbeat=25.0)
+    await ws.prepare(request)
+    WS_CLIENTS.add(ws)
+    try:
+        await ws.send_json({"type": "connected", "service": "PaiGen AI v4.0", "ts": time.time()})
+        async for msg in ws:
+            if msg.type == WSMsgType.TEXT:
+                try:
+                    data = json.loads(msg.data)
+                    kind = data.get("type", "")
+                    if kind == "ping":
+                        await ws.send_json({"type": "pong", "ts": time.time()})
+                    elif kind == "chat":
+                        loop = asyncio.get_event_loop()
+                        res = await loop.run_in_executor(
+                            None, controller.execute_remote_command, data.get("query", "")
+                        )
+                        await ws.send_json({"type": "chat_reply", "data": res})
+                    elif kind == "pc_action":
+                        act = data.get("action", "")
+                        loop = asyncio.get_event_loop()
+                        if act == "lock":
+                            res = await loop.run_in_executor(None, controller.lock_workstation)
+                        elif act in ("mute", "up", "down"):
+                            res = await loop.run_in_executor(None, controller.set_system_volume, act)
+                        else:
+                            res = {"status": "error", "message": f"Unknown action '{act}'"}
+                        await ws.send_json({"type": "action_result", "data": res})
+                except Exception as exc:
+                    await ws.send_json({"type": "error", "message": str(exc)})
+            elif msg.type == WSMsgType.ERROR:
+                break
+    finally:
+        WS_CLIENTS.discard(ws)
+    return ws
+
+
 def create_gateway_app() -> web.Application:
-    app = web.Application()
+    app = web.Application(client_max_size=32 * 1024 * 1024)
     app.router.add_get("/", handle_root)
+    app.router.add_get("/ws", handle_ws)
+    app.router.add_get("/api/ping", handle_ping)
     app.router.add_post("/api/chat", handle_chat)
     app.router.add_get("/api/screen", handle_screen)
+    app.router.add_get("/api/pc/stats", handle_pc_stats)
+    app.router.add_post("/api/pc/input", handle_pc_input)
     app.router.add_post("/api/action", handle_action)
+    app.router.add_post("/api/psychology/analyze", handle_psychology_analyze)
     app.router.add_post("/api/telephony/webhook", handle_telephony_webhook)
     app.router.add_get("/api/telephony/calls", handle_telephony_calls)
+    app.router.add_post("/api/telephony/session/start", handle_telephony_session_start)
+    app.router.add_post("/api/telephony/converse", handle_telephony_converse)
+    app.router.add_post("/api/telephony/recording", handle_telephony_recording_upload)
+    app.router.add_get("/api/telephony/recordings/{filename}", handle_telephony_recording_get)
     app.router.add_get("/api/audio/tts", handle_tts)
     return app
 

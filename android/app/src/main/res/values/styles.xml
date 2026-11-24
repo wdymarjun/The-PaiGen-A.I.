@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="PaiGenTheme" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:colorPrimary">#00E5FF</item>
+        <item name="android:colorPrimaryDark">#060911</item>
+        <item name="android:colorAccent">#00E5FF</item>
+        <item name="android:windowBackground">#060911</item>
+        <item name="android:statusBarColor">#060911</item>
+        <item name="android:navigationBarColor">#0B101B</item>
+    </style>
+
+    <style name="PaiGenDialogTheme" parent="@android:style/Theme.Material.Dialog.NoActionBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:backgroundDimEnabled">true</item>
+    </style>
+</resources>

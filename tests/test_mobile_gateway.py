@@ -144,6 +144,85 @@ class TestGatewayEndpoints(AioHTTPTestCase):
         body = await resp.json()
         self.assertEqual(body.get("status"), "success")
 
+    @unittest_run_loop
+    async def test_ping_and_pc_stats(self):
+        resp = await self.client.request("GET", "/api/ping")
+        self.assertEqual(resp.status, 200)
+        body = await resp.json()
+        self.assertEqual(body.get("status"), "online")
+
+        stats_resp = await self.client.request("GET", "/api/pc/stats")
+        self.assertEqual(stats_resp.status, 200)
+        stats = await stats_resp.json()
+        self.assertIn("hostname", stats)
+        self.assertIn("screen_resolution", stats)
+
+    @unittest_run_loop
+    async def test_psychology_analyze_endpoint(self):
+        payload = {"text": "Bhai urgent kaam hai server crash ho gaya hai", "speaker_role": "caller"}
+        resp = await self.client.request(
+            "POST",
+            "/api/psychology/analyze",
+            data=json.dumps(payload),
+            headers={"Content-Type": "application/json"},
+        )
+        self.assertEqual(resp.status, 200)
+        body = await resp.json()
+        self.assertEqual(body.get("status"), "success")
+        self.assertEqual(body["profile"]["recommended_response_language"], "hi")
+
+    @unittest_run_loop
+    async def test_telephony_converse_hindi_and_recording_upload(self):
+        import base64
+        start_resp = await self.client.request(
+            "POST",
+            "/api/telephony/session/start",
+            data=json.dumps({"caller_id": "+919999000011", "caller_name": "Vikram", "preferred_lang": "hi"}),
+            headers={"Content-Type": "application/json"},
+        )
+        self.assertEqual(start_resp.status, 200)
+        start_data = (await start_resp.json())["data"]
+        call_id = start_data["call_id"]
+
+        conv_resp = await self.client.request(
+            "POST",
+            "/api/telephony/converse",
+            data=json.dumps({
+                "call_id": call_id,
+                "caller_id": "+919999000011",
+                "caller_name": "Vikram",
+                "caller_speech": "Arjun bhai ghar pe emergency hai jaldi baat karao",
+                "include_audio": False,
+            }),
+            headers={"Content-Type": "application/json"},
+        )
+        self.assertEqual(conv_resp.status, 200)
+        conv_data = (await conv_resp.json())["data"]
+        self.assertEqual(conv_data["language"], "hi")
+        self.assertTrue(conv_data["should_escalate"])
+
+        fake_m4a = b"\x00\x00\x00\x20ftypM4A TEST_AUDIO_BYTES"
+        rec_resp = await self.client.request(
+            "POST",
+            "/api/telephony/recording",
+            data=json.dumps({
+                "call_id": call_id,
+                "caller_id": "+919999000011",
+                "caller_name": "Vikram",
+                "filename": "test_call.m4a",
+                "duration_sec": 8.5,
+                "audio_base64": base64.b64encode(fake_m4a).decode("ascii"),
+            }),
+            headers={"Content-Type": "application/json"},
+        )
+        self.assertEqual(rec_resp.status, 200)
+        rec_body = await rec_resp.json()
+        self.assertEqual(rec_body.get("status"), "success")
+
+        dl_resp = await self.client.request("GET", rec_body["audio_url"])
+        self.assertEqual(dl_resp.status, 200)
+        self.assertEqual(await dl_resp.read(), fake_m4a)
+
 
 if __name__ == "__main__":
     unittest.main()

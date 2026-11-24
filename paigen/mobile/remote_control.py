@@ -142,3 +142,86 @@ class RemotePCController:
         # 4. Standard conversational cognitive query
         llm_reply = self.brain.query(q_clean, ctx=self.telemetry)
         return {"status": "success", "reply": llm_reply, "action": "chat"}
+
+    @staticmethod
+    def execute_pc_input(
+        input_type: str,
+        x_norm: float = 0.5,
+        y_norm: float = 0.5,
+        text: str = "",
+        key: str = "",
+    ) -> Dict[str, Any]:
+        """Executes remote touch-to-mouse, scroll, text typing, or hotkey commands from the Android APK."""
+        try:
+            import pyautogui
+            sw, sh = pyautogui.size()
+            tx = max(0, min(sw - 1, int(float(x_norm) * sw)))
+            ty = max(0, min(sh - 1, int(float(y_norm) * sh)))
+            kind = (input_type or "").lower().strip()
+
+            if kind == "click":
+                pyautogui.click(tx, ty)
+                return {"status": "success", "message": f"Clicked PC at ({tx}, {ty})"}
+            elif kind == "double_click":
+                pyautogui.doubleClick(tx, ty)
+                return {"status": "success", "message": f"Double-clicked PC at ({tx}, {ty})"}
+            elif kind == "right_click":
+                pyautogui.rightClick(tx, ty)
+                return {"status": "success", "message": f"Right-clicked PC at ({tx}, {ty})"}
+            elif kind == "move":
+                pyautogui.moveTo(tx, ty)
+                return {"status": "success", "message": f"Moved cursor to ({tx}, {ty})"}
+            elif kind == "scroll_up":
+                pyautogui.scroll(350)
+                return {"status": "success", "message": "Scrolled PC screen up"}
+            elif kind == "scroll_down":
+                pyautogui.scroll(-350)
+                return {"status": "success", "message": "Scrolled PC screen down"}
+            elif kind == "type" and text:
+                pyautogui.write(text, interval=0.01)
+                return {"status": "success", "message": f"Typed text on PC ({len(text)} chars)"}
+            elif kind == "key" and key:
+                parts = [p.strip() for p in key.split("+") if p.strip()]
+                if len(parts) > 1:
+                    pyautogui.hotkey(*parts)
+                else:
+                    pyautogui.press(parts[0])
+                return {"status": "success", "message": f"Triggered key: {key}"}
+            elif kind == "media_play_pause":
+                pyautogui.press("playpause")
+                return {"status": "success", "message": "Toggled media play/pause"}
+            return {"status": "error", "message": f"Unsupported input_type '{input_type}'"}
+        except Exception as e:
+            return {"status": "error", "message": f"Remote PC input failed: {e}"}
+
+    @staticmethod
+    def get_system_stats() -> Dict[str, Any]:
+        """Returns lightweight workstation telemetry for the Android APK status dashboard."""
+        import platform
+        import socket
+
+        active_title = "Desktop"
+        try:
+            import pygetwindow as gw
+            win = gw.getActiveWindow()
+            if win and win.title:
+                active_title = win.title[:80]
+        except Exception:
+            pass
+
+        screen_size = [1920, 1080]
+        try:
+            import pyautogui
+            sw, sh = pyautogui.size()
+            screen_size = [sw, sh]
+        except Exception:
+            pass
+
+        return {
+            "status": "online",
+            "hostname": socket.gethostname(),
+            "os": f"{platform.system()} {platform.release()}",
+            "active_window": active_title,
+            "screen_resolution": screen_size,
+            "timestamp": time.time(),
+        }

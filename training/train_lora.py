@@ -103,8 +103,8 @@ def run_training(
     model = prepare_model_for_kbit_training(model)
 
     lora_config = LoraConfig(
-        r=16,
-        lora_alpha=32,
+        r=32,
+        lora_alpha=64,
         target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
         lora_dropout=0.05,
         bias="none",
@@ -115,29 +115,39 @@ def run_training(
     model.print_trainable_parameters()
 
     raw_dataset = load_dataset("json", data_files=dataset_path, split="train")
+    split_ds = raw_dataset.train_test_split(test_size=0.1, seed=42)
     # Apply official ChatML chat template to format clean text
-    formatted_dataset = format_dataset_with_chat_template(raw_dataset, tokenizer)
+    train_dataset = format_dataset_with_chat_template(split_ds["train"], tokenizer)
+    eval_dataset = format_dataset_with_chat_template(split_ds["test"], tokenizer)
 
     training_args = TrainingArguments(
         output_dir=output_dir,
         per_device_train_batch_size=2,
         gradient_accumulation_steps=4,
-        warmup_steps=10,
+        warmup_ratio=0.08,
+        lr_scheduler_type="cosine",
+        weight_decay=0.01,
+        max_grad_norm=0.3,
         max_steps=max_steps,
-        learning_rate=2e-4,
-        fp16=True,
+        learning_rate=1.5e-4,
+        bf16=torch.cuda.is_bf16_supported(),
+        fp16=not torch.cuda.is_bf16_supported(),
+        eval_strategy="steps",
+        eval_steps=25,
         logging_steps=10,
         save_strategy="steps",
         save_steps=50,
+        load_best_model_at_end=True,
         report_to="none",  # Strict Invariant: Zero cloud telemetry
     )
 
     trainer = SFTTrainer(
         model=model,
-        train_dataset=formatted_dataset,
+        train_dataset=train_dataset,
+        eval_dataset=eval_dataset,
         peft_config=lora_config,
         dataset_text_field="text",
-        max_seq_length=1024,
+        max_seq_length=1536,
         tokenizer=tokenizer,
         args=training_args,
     )

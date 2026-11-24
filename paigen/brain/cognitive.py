@@ -135,6 +135,16 @@ class CognitiveBrain:
                 "Engage naturally in English, Hindi, or Hinglish as appropriate to the context."
             )
 
+        # Retrieve live ML Psychological Profiling for the current utterance
+        psych_block = ""
+        if user_query:
+            try:
+                from paigen.brain.psychology import PsychologicalEngine
+                prof = PsychologicalEngine.get_instance().analyze(user_query, speaker_role=ctx.user_name)
+                psych_block = f"\n{prof.prompt_directive}\n"
+            except Exception as e:
+                logger.debug(f"Psychology engine profiling skipped: {e}")
+
         # Retrieve relevant citations from verified local knowledge base
         cited_block = ""
         if user_query:
@@ -198,6 +208,7 @@ ACTIVE BEHAVIORAL DIRECTIVE:
     forced_phase_name=override_phase
 )}
 {visual_context}
+{psych_block}
 {cited_block}
 {HistoricalAdvisor.build_epistemic_system_prompt_addon()}
 

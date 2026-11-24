@@ -23,3 +23,7 @@ ehthumbs.db
 Desktop.ini
 .DS_Store
 
+# Android intermediate build artifacts
+android/build/
+android/*.keystore
+

@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>PaiGen AI — Mobile & PC Guardian</title>
+  <style>
+    :root {
+      --bg: #060911;
+      --surface: #0D1424;
+      --surface-2: #141E33;
+      --cyan: #00E5FF;
+      --emerald: #10B981;
+      --rose: #F43F5E;
+      --amber: #F59E0B;
+      --text: #F8FAFC;
+      --muted: #94A3B8;
+      --border: #1E293B;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-tap-highlight-color: transparent; }
+    body { background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+    /* Top Header */
+    .topbar {
+      padding: 12px 16px;
+      background: rgba(13, 20, 36, 0.96);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 15px; letter-spacing: 0.05em; color: var(--cyan); }
+    .brand-sub { font-size: 10px; color: var(--muted); font-weight: 600; display: block; letter-spacing: 0.02em; }
+    .conn-pill { font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 999px; border: 1px solid; cursor: pointer; }
+    .conn-online { background: rgba(16,185,129,0.14); color: var(--emerald); border-color: rgba(16,185,129,0.35); }
+    .conn-offline { background: rgba(245,158,11,0.14); color: var(--amber); border-color: rgba(245,158,11,0.35); }
+
+    /* Scrollable Main Stage */
+    .pages { flex: 1; overflow-y: auto; padding: 12px 14px 86px; display: flex; flex-direction: column; gap: 12px; }
+    .tab-pane { display: none; flex-direction: column; gap: 12px; }
+    .tab-pane.active { display: flex; }
+
+    /* Cards & Controls */
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 14px; }
+    .card-hdr { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .card-title { font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--cyan); }
+    .btn {
+      border: none; border-radius: 12px; padding: 10px 14px; font-weight: 700; font-size: 13px;
+      cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      transition: transform 0.1s ease, opacity 0.15s ease;
+    }
+    .btn:active { transform: scale(0.97); }
+    .btn-cyan { background: var(--cyan); color: #041019; }
+    .btn-emerald { background: var(--emerald); color: #041910; }
+    .btn-rose { background: var(--rose); color: #fff; }
+    .btn-ghost { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); }
+    .btn-sm { padding: 7px 11px; font-size: 12px; border-radius: 10px; }
+
+    /* Avatar Core */
+    .core-wrap { display: flex; flex-direction: column; align-items: center; padding: 6px 0 2px; }
+    canvas#faceCanvas { width: 170px; height: 170px; }
+    .core-status { font-size: 12px; color: var(--muted); margin-top: -6px; text-align: center; }
+
+    /* Active Call Banner */
+    .call-active-card {
+      background: linear-gradient(145deg, #131B2E, #1D1224);
+      border: 1.5px solid var(--rose);
+      border-radius: 16px;
+      padding: 14px;
+      display: none;
+      flex-direction: column;
+      gap: 10px;
+      box-shadow: 0 0 24px rgba(244,63,94,0.2);
+    }
+    .call-active-card.visible { display: flex; }
+    .rec-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--rose); display: inline-block; animation: blink 1s infinite; }
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
+
+    .psych-chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
+    .pill { font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); color: var(--text); }
+    .pill-urgent { background: rgba(244,63,94,0.2); border-color: var(--rose); color: #FDA4AF; }
+    .pill-hi { background: rgba(0,229,255,0.16); border-color: var(--cyan); color: var(--cyan); }
+    .pill-ok { background: rgba(16,185,129,0.16); border-color: var(--emerald); color: #6EE7B7; }
+
+    /* Chat Area */
+    .chat-scroll {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+      padding: 12px; min-height: 170px; max-height: 230px; overflow-y: auto;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .msg { padding: 9px 12px; border-radius: 12px; font-size: 13px; line-height: 1.45; max-width: 88%; word-break: break-word; }
+    .msg.user { align-self: flex-end; background: #0369A1; color: #fff; }
+    .msg.ai { align-self: flex-start; background: var(--surface-2); border-left: 3px solid var(--cyan); color: #E2E8F0; }
+    .msg.caller { align-self: flex-end; background: #311B3D; border-right: 3px solid var(--rose); color: #FCE7F3; }
+    .msg.sys { align-self: center; font-size: 11px; color: var(--muted); }
+
+    .input-row { display: flex; gap: 8px; align-items: center; }
+    .txt-input {
+      flex: 1; background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px;
+      padding: 11px 14px; color: #fff; font-size: 14px; outline: none;
+    }
+    .txt-input:focus { border-color: var(--cyan); }
+
+    /* PC Screen Interactive Canvas */
+    .pc-screen-box { position: relative; border-radius: 12px; overflow: hidden; border: 1px solid var(--border); background: #020408; }
+    .pc-screen-img { width: 100%; display: block; object-fit: contain; cursor: crosshair; min-height: 160px; }
+    .grid-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+
+    /* Call Vault Cards */
+    .vault-item { background: var(--surface-2); border: 1px solid var(--border); border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+    .vault-transcript { font-size: 12px; color: #CBD5E1; background: rgba(6,9,17,0.6); padding: 8px 10px; border-radius: 10px; white-space: pre-wrap; max-height: 110px; overflow-y: auto; }
+
+    /* Psychology Bars */
+    .gauge-row { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+    .gauge-lbl { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-weight: 600; }
+    .gauge-track { height: 7px; border-radius: 999px; background: #090E1A; overflow: hidden; }
+    .gauge-fill { height: 100%; border-radius: 999px; transition: width 0.35s ease; }
+
+    /* Bottom Navigation */
+    .bottom-nav {
+      position: fixed; bottom: 0; left: 0; right: 0; height: 66px;
+      background: rgba(11, 16, 27, 0.98); border-top: 1px solid var(--border);
+      display: grid; grid-template-columns: repeat(4, 1fr); z-index: 40;
+    }
+    .nav-btn {
+      background: none; border: none; color: var(--muted); display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 3px; font-size: 10px; font-weight: 700; cursor: pointer;
+    }
+    .nav-btn .ico { font-size: 18px; }
+    .nav-btn.active { color: var(--cyan); }
+  </style>
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="brand">
+      <span>( ◠ ‿ ◠ )</span>
+      <div>
+        PAIGEN AI
+        <span class="brand-sub" id="activeWinLabel">Mobile & PC Guardian</span>
+      </div>
+    </div>
+    <div class="conn-pill conn-offline" id="connPill" onclick="pingServer()">○ CHECKING</div>
+  </header>
+
+  <main class="pages">
+
+    <!-- ═══════════════ TAB 1: CORE & LIVE CALL GUARDIAN ═══════════════ -->
+    <section class="tab-pane active" id="tab-core">
+      <div class="core-wrap">
+        <canvas id="faceCanvas" width="180" height="180"></canvas>
+        <div class="core-status" id="coreStatus">Ready • Hindi-First & British Voice Active</div>
+      </div>
+
+      <!-- Active Call Takeover Panel (appears when user taps "Yes, Let PaiGen Talk") -->
+      <div class="call-active-card" id="activeCallCard">
+        <div class="card-hdr" style="margin-bottom:2px;">
+          <span style="font-size:12px;font-weight:800;color:#FDA4AF;display:flex;align-items:center;gap:6px;">
+            <span class="rec-dot"></span> AI CALL GUARDIAN ACTIVE • RECORDING
+          </span>
+          <span class="pill pill-urgent" id="callTimer">00:00</span>
+        </div>
+        <div style="font-size:14px;font-weight:700;" id="activeCallerTitle">Caller</div>
+        <div class="psych-chip-row" id="callPsychPills">
+          <span class="pill pill-hi">Hindi-First Ready</span>
+          <span class="pill">Recording Audio</span>
+        </div>
+        <div class="chat-scroll" id="callTranscriptBox" style="max-height:150px;min-height:110px;"></div>
+        <div class="input-row">
+          <button class="btn btn-rose btn-sm" onclick="listenToCaller()">🎤 Listen Caller</button>
+          <input id="callerSimInput" class="txt-input" style="padding:8px 10px;font-size:13px;" placeholder="Caller says (Hindi/Eng)...">
+          <button class="btn btn-cyan btn-sm" onclick="sendCallerSpeechManual()">▶</button>
+        </div>
+        <button class="btn btn-emerald" onclick="endAndSaveCall()">💾 End Call & Store Recording</button>
+      </div>
+
+      <!-- Quick Call Guardian Controls -->
+      <div class="card">
+        <div class="card-hdr">
+          <span class="card-title">Call Guardian & Voice</span>
+          <button class="btn btn-ghost btn-sm" onclick="simulateCallPrompt()">📞 Test "Should I talk?"</button>
+        </div>
+        <div class="grid-2">
+          <button class="btn btn-cyan" id="btnMicMain" onclick="listenMainQuery()">🎤 Talk to PaiGen</button>
+          <button class="btn btn-ghost" onclick="switchTab('tab-pc')">🖥 Control PC</button>
+        </div>
+      </div>
+
+      <!-- Main Assistant Chat -->
+      <div class="chat-scroll" id="mainChatBox">
+        <div class="msg ai">नमस्ते अर्जुन! मैं आपका पर्सनल AI असिस्टेंट पाइजेन हूँ। PC कंट्रोल, लाइव कॉल रिसेप्शन और साइकोलॉजी इंजन तैयार हैं।</div>
+      </div>
+
+      <div class="input-row">
+        <input id="mainInput" class="txt-input" placeholder="Hindi या English में कमांड दें..." onkeydown="if(event.key==='Enter') sendMainText()">
+        <button class="btn btn-cyan" onclick="sendMainText()">Send</button>
+      </div>
+    </section>
+
+    <!-- ═══════════════ TAB 2: PC REMOTE CONTROL ═══════════════ -->
+    <section class="tab-pane" id="tab-pc">
+      <div class="card">
+        <div class="card-hdr">
+          <span class="card-title">Live Interactive PC Screen</span>
+          <div style="display:flex;gap:6px;">
+            <button class="btn btn-ghost btn-sm" id="btnAutoScreen" onclick="toggleAutoScreen()">Auto: OFF</button>
+            <button class="btn btn-cyan btn-sm" onclick="refreshScreen()">Refresh</button>
+          </div>
+        </div>
+        <div class="pc-screen-box">
+          <img id="pcScreenImg" class="pc-screen-img" alt="Tap Refresh to load PC Screen" onclick="onScreenTap(event)">
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:11px;color:var(--muted);">
+          <span>Tap image to click on PC</span>
+          <select id="tapMode" style="background:var(--surface-2);color:#fff;border:1px solid var(--border);border-radius:8px;padding:3px 8px;font-size:11px;">
+            <option value="click">Left Click</option>
+            <option value="double_click">Double Click</option>
+            <option value="right_click">Right Click</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-hdr">
+          <span class="card-title">Workstation Controls</span>
+          <span class="pill" id="pcResBadge">PC</span>
+        </div>
+        <div class="grid-actions">
+          <button class="btn btn-ghost btn-sm" onclick="pcAction('lock')">🔒 Lock</button>
+          <button class="btn btn-ghost btn-sm" onclick="pcAction('mute')">🔇 Mute</button>
+          <button class="btn btn-ghost btn-sm" onclick="pcInput('media_play_pause')">⏯ Media</button>
+          <button class="btn btn-ghost btn-sm" onclick="pcAction('up')">🔊 Vol +</button>
+          <button class="btn btn-ghost btn-sm" onclick="pcAction('down')">🔉 Vol -</button>
+          <button class="btn btn-ghost btn-sm" onclick="pcInput('key','','','alt+tab')">⇄ Alt+Tab</button>
+          <button class="btn btn-ghost btn-sm" onclick="pcInput('scroll_up')">⬆ Scroll</button>
+          <button class="btn btn-ghost btn-sm" onclick="pcInput('scroll_down')">⬇ Scroll</button>
+          <button class="btn btn-ghost btn-sm" onclick="pcInput('key','','','enter')">⏎ Enter</button>
+        </div>
+        <div class="input-row" style="margin-top:10px;">
+          <input id="pcTypeText" class="txt-input" placeholder="Type text onto PC...">
+          <button class="btn btn-cyan btn-sm" onclick="sendTypeToPc()">Type</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-hdr"><span class="card-title">Launch Desktop Apps</span></div>
+        <div class="grid-2">
+          <button class="btn btn-ghost btn-sm" onclick="launchApp('chrome')">🌐 Chrome</button>
+          <button class="btn btn-ghost btn-sm" onclick="launchApp('code')">💻 VS Code</button>
+          <button class="btn btn-ghost btn-sm" onclick="launchApp('terminal')">⌨ Terminal</button>
+          <button class="btn btn-ghost btn-sm" onclick="launchApp('whatsapp')">💬 WhatsApp</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════ TAB 3: CALL RECORDINGS VAULT ═══════════════ -->
+    <section class="tab-pane" id="tab-vault">
+      <div class="card">
+        <div class="card-hdr">
+          <span class="card-title">Recorded Calls & Hindi Transcripts</span>
+          <button class="btn btn-cyan btn-sm" onclick="loadVault()">Sync Vault</button>
+        </div>
+        <div id="vaultList" style="display:flex;flex-direction:column;gap:10px;">
+          <div style="font-size:12px;color:var(--muted);text-align:center;padding:12px;">No recorded calls yet.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════ TAB 4: PSYCHOLOGY ENGINE & SETTINGS ═══════════════ -->
+    <section class="tab-pane" id="tab-mind">
+      <div class="card">
+        <div class="card-hdr">
+          <span class="card-title">ML + LLM Psychological Engine</span>
+          <span class="pill pill-hi" id="psychStateBadge">CALM_NEUTRAL</span>
+        </div>
+        <div class="input-row" style="margin-bottom:10px;">
+          <input id="psychTestInput" class="txt-input" placeholder="Test caller phrase (Hindi/Eng)...">
+          <button class="btn btn-cyan btn-sm" onclick="runPsychTest()">Analyze</button>
+        </div>
+        <div class="gauge-row"><div class="gauge-lbl"><span>Emotional Valence</span><span id="valScore">+0.00</span></div><div class="gauge-track"><div id="valBar" class="gauge-fill" style="width:50%;background:var(--cyan);"></div></div></div>
+        <div class="gauge-row"><div class="gauge-lbl"><span>Sympathetic Arousal / Stress</span><span id="aroScore">0%</span></div><div class="gauge-track"><div id="aroBar" class="gauge-fill" style="width:30%;background:var(--amber);"></div></div></div>
+        <div class="gauge-row"><div class="gauge-lbl"><span>Trust Openness</span><span id="truScore">0%</span></div><div class="gauge-track"><div id="truBar" class="gauge-fill" style="width:70%;background:var(--emerald);"></div></div></div>
+        <div class="gauge-row"><div class="gauge-lbl"><span>Manipulation / Spam Risk</span><span id="manScore">0%</span></div><div class="gauge-track"><div id="manBar" class="gauge-fill" style="width:5%;background:var(--rose);"></div></div></div>
+        <div class="gauge-row"><div class="gauge-lbl"><span>Cognitive Load</span><span id="cogScore">0%</span></div><div class="gauge-track"><div id="cogBar" class="gauge-fill" style="width:20%;background:#A855F7;"></div></div></div>
+        <div id="psychInsightText" style="font-size:12px;color:var(--muted);margin-top:6px;">Enter any Hindi, Hinglish, or English caller sentence to inspect real-time ML psychological profiling.</div>
+      </div>
+
+      <div class="card">
+        <div class="card-hdr"><span class="card-title">PC Server & Call Rules</span></div>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <label style="font-size:12px;color:var(--muted);">PC Gateway URL (Wi-Fi Local IP)</label>
+          <input id="cfgServerUrl" class="txt-input" value="http://10.203.190.80:8765">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;">
+            <input type="checkbox" id="cfgAutoAsk" checked> Ask "Should I talk?" on incoming calls
+          </label>
+          <select id="cfgPrefLang" class="txt-input">
+            <option value="auto">Hindi-First Auto (Hindi callers -> Hindi)</option>
+            <option value="hi">Always Hindi (हिंदी)</option>
+            <option value="en">Always English</option>
+          </select>
+          <button class="btn btn-emerald" onclick="saveSettings()">Save Settings & Connect</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-hdr"><span class="card-title">Android Call & Overlay Permissions</span></div>
+        <div id="permStatus" style="font-size:12px;color:var(--muted);margin-bottom:10px;">Checking permissions...</div>
+        <div class="grid-2">
+          <button class="btn btn-ghost btn-sm" onclick="grantOverlay()">Enable Overlay</button>
+          <button class="btn btn-ghost btn-sm" onclick="grantCallScreen()">Set Call Screener</button>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <nav class="bottom-nav">
+    <button class="nav-btn active" data-tab="tab-core" onclick="switchTab('tab-core', this)"><span class="ico">🤖</span>CORE</button>
+    <button class="nav-btn" data-tab="tab-pc" onclick="switchTab('tab-pc', this)"><span class="ico">🖥</span>PC LINK</button>
+    <button class="nav-btn" data-tab="tab-vault" onclick="switchTab('tab-vault', this)"><span class="ico">🎙</span>VAULT</button>
+    <button class="nav-btn" data-tab="tab-mind" onclick="switchTab('tab-mind', this)"><span class="ico">🧠</span>MIND</button>
+  </nav>
+
+  <script>
+    const hasNative = typeof window.PaiGenNative !== 'undefined';
+    let SERVER_URL = 'http://10.203.190.80:8765';
+    let AUTO_ASK = true;
+    let PREF_LANG = 'auto';
+    let isSpeaking = false;
+    let isListening = false;
+    let listenMode = 'main'; // 'main' or 'caller'
+    let autoScreenTimer = null;
+
+    // Active Call Session state
+    let activeCall = {
+      active: false,
+      callId: null,
+      callerId: '',
+      callerName: '',
+      startTime: 0,
+      timerHandle: null,
+      transcript: [],
+      latestPsych: {},
+      lang: 'hi'
+    };
+
+    // ─── 1. Living ( ◠ ‿ ◠ ) Canvas Core ───────────────────────────────────────
+    const canvas = document.getElementById('faceCanvas');
+    const ctx = canvas.getContext('2d');
+    let tick = 0, mouthPhase = 0, blinkTimer = 90, blinkPhase = 0;
+
+    function drawFace() {
+      tick++;
+      ctx.clearRect(0, 0, 180, 180);
+      const cx = 90, cy = 90 + Math.sin(tick * 0.05) * 3.5;
+      const ringColor = activeCall.active ? '#F43F5E' : (isSpeaking ? '#10B981' : (isListening ? '#F59E0B' : '#00E5FF'));
+
+      ctx.beginPath();
+      ctx.arc(cx, cy, 58 + Math.sin(tick * 0.06) * 2, 0, Math.PI * 2);
+      ctx.strokeStyle = ringColor;
+      ctx.lineWidth = 3;
+      ctx.shadowBlur = 14;
+      ctx.shadowColor = ringColor;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      // Cheeks
+      ctx.fillStyle = 'rgba(255, 115, 160, 0.40)';
+      ctx.beginPath(); ctx.ellipse(cx - 32, cy + 8, 7, 3.5, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(cx + 32, cy + 8, 7, 3.5, 0, 0, Math.PI * 2); ctx.fill();
+
+      // Blinking Eyes
+      blinkTimer--;
+      if (blinkTimer <= 0) {
+        blinkPhase += 0.32;
+        if (blinkPhase >= 1) { blinkTimer = Math.floor(Math.random() * 110 + 70); blinkPhase = 0; }
+      }
+      ctx.strokeStyle = ringColor;
+      ctx.lineWidth = 3;
+      ctx.lineCap = 'round';
+      if (12 * (1 - blinkPhase) < 2) {
+        ctx.beginPath(); ctx.moveTo(cx - 34, cy - 6); ctx.lineTo(cx - 14, cy - 6); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(cx + 14, cy - 6); ctx.lineTo(cx + 34, cy - 6); ctx.stroke();
+      } else {
+        ctx.beginPath(); ctx.arc(cx - 24, cy - 3, 10, Math.PI, 0, false); ctx.stroke();
+        ctx.beginPath(); ctx.arc(cx + 24, cy - 3, 10, Math.PI, 0, false); ctx.stroke();
+      }
+
+      // Mouth
+      if (isSpeaking) mouthPhase += 0.28;
+      const open = isSpeaking ? Math.abs(Math.sin(mouthPhase)) * 8 : 0;
+      ctx.beginPath();
+      if (open > 1.8) {
+        ctx.ellipse(cx, cy + 22, 13, 4 + open, 0, 0, Math.PI * 2);
+        ctx.fillStyle = '#060911'; ctx.fill();
+        ctx.stroke();
+      } else {
+        ctx.arc(cx, cy + 16, 15, 0.15 * Math.PI, 0.85 * Math.PI, false);
+        ctx.stroke();
+      }
+      requestAnimationFrame(drawFace);
+    }
+    drawFace();
+
+    window.onNativeSpeakState = function(speaking) {
+      isSpeaking = !!speaking;
+    };
+
+    // ─── 2. Navigation & Config ────────────────────────────────────────────────
+    function switchTab(id, btn) {
+      document.querySelectorAll('.tab-pane').forEach(el => el.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+      document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+      if (btn) btn.classList.add('active');
+      else {
+        const match = document.querySelector(`.nav-btn[data-tab="${id}"]`);
+        if (match) match.classList.add('active');
+      }
+      if (id === 'tab-pc') refreshScreen();
+      if (id === 'tab-vault') loadVault();
+      if (id === 'tab-mind') refreshPermissions();
+    }
+
+    function loadConfig() {
+      if (hasNative) {
+        try {
+          const cfg = JSON.parse(PaiGenNative.getConfigJson());
+          if (cfg.server_url) SERVER_URL = cfg.server_url;
+          AUTO_ASK = cfg.auto_ask_calls !== false;
+          PREF_LANG = cfg.preferred_lang || 'auto';
+        } catch (e) {}
+      } else {
+        SERVER_URL = window.location.origin;
+      }
+      document.getElementById('cfgServerUrl').value = SERVER_URL;
+      document.getElementById('cfgAutoAsk').checked = AUTO_ASK;
+      document.getElementById('cfgPrefLang').value = PREF_LANG;
+    }
+
+    function saveSettings() {
+      SERVER_URL = document.getElementById('cfgServerUrl').value.trim().replace(/\/+$/, '');
+      AUTO_ASK = document.getElementById('cfgAutoAsk').checked;
+      PREF_LANG = document.getElementById('cfgPrefLang').value;
+      if (hasNative) {
+        PaiGenNative.saveConfig(SERVER_URL, AUTO_ASK, PREF_LANG);
+      }
+      pingServer();
+    }
+
+    async function pingServer() {
+      const pill = document.getElementById('connPill');
+      try {
+        const res = await fetch(SERVER_URL + '/api/pc/stats');
+        if (!res.ok) throw new Error('offline');
+        const stats = await res.json();
+        pill.className = 'conn-pill conn-online';
+        pill.innerText = '● PC ONLINE';
+        document.getElementById('activeWinLabel').innerText = (stats.hostname || 'PC') + ' • ' + (stats.active_window || 'Active');
+        if (stats.screen_resolution) {
+          document.getElementById('pcResBadge').innerText = stats.screen_resolution[0] + 'x' + stats.screen_resolution[1];
+        }
+      } catch (e) {
+        pill.className = 'conn-pill conn-offline';
+        pill.innerText = '○ STANDALONE';
+      }
+    }
+
+    // ─── 3. Audio Voice & Speech Recognition ───────────────────────────────────
+    function speakOut(text, lang, b64Audio) {
+      if (!text) return;
+      if (b64Audio && hasNative) {
+        PaiGenNative.playAudioBase64(b64Audio);
+        return;
+      }
+      if (hasNative) {
+        PaiGenNative.speakNative(text, lang || 'hi');
+        return;
+      }
+      if ('speechSynthesis' in window) {
+        const u = new SpeechSynthesisUtterance(text);
+        u.lang = lang === 'hi' ? 'hi-IN' : 'en-GB';
+        u.onstart = () => { isSpeaking = true; };
+        u.onend = () => { isSpeaking = false; };
+        speechSynthesis.speak(u);
+      }
+    }
+
+    function listenMainQuery() {
+      listenMode = 'main';
+      startListen(PREF_LANG === 'en' ? 'en' : 'hi');
+    }
+
+    function listenToCaller() {
+      listenMode = 'caller';
+      startListen(PREF_LANG === 'en' ? 'en' : 'hi');
+    }
+
+    function startListen(lang) {
+      isListening = true;
+      document.getElementById('coreStatus').innerText = listenMode === 'caller' ? 'Listening to caller (Hindi/Eng)...' : 'Listening to Arjun...';
+      if (hasNative) {
+        PaiGenNative.startSpeechListen(lang);
+      } else if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const r = new SR();
+        r.lang = lang === 'en' ? 'en-IN' : 'hi-IN';
+        r.onresult = (ev) => window.onNativeSpeechResult(ev.results[0][0].transcript);
+        r.onerror = () => window.onNativeSpeechError(1);
+        r.start();
+      } else {
+        isListening = false;
+        alert('Microphone requires Android APK or Chrome.');
+      }
+    }
+
+    window.onNativeSpeechResult = function(text) {
+      isListening = false;
+      document.getElementById('coreStatus').innerText = 'Ready • Hindi-First & British Voice Active';
+      if (!text) return;
+      if (listenMode === 'caller' && activeCall.active) {
+        handleCallerUtterance(text);
+      } else {
+        addChatMsg('mainChatBox', text, 'user');
+        sendMainQuery(text);
+      }
+    };
+
+    window.onNativeSpeechError = function(code) {
+      isListening = false;
+      document.getElementById('coreStatus').innerText = 'Ready • Tap mic anytime';
+    };
+
+    // ─── 4. Main Assistant Chat ────────────────────────────────────────────────
+    function addChatMsg(boxId, text, cls) {
+      const box = document.getElementById(boxId);
+      const d = document.createElement('div');
+      d.className = 'msg ' + cls;
+      d.innerText = text;
+      box.appendChild(d);
+      box.scrollTop = box.scrollHeight;
+    }
+
+    function sendMainText() {
+      const inp = document.getElementById('mainInput');
+      const q = inp.value.trim();
+      if (!q) return;
+      inp.value = '';
+      addChatMsg('mainChatBox', q, 'user');
+      sendMainQuery(q);
+    }
+
+    async function sendMainQuery(query) {
+      document.getElementById('coreStatus').innerText = 'Thinking & analyzing psychology...';
+      try {
+        const res = await fetch(SERVER_URL + '/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query })
+        });
+        const data = await res.json();
+        const reply = data.reply || 'Done.';
+        addChatMsg('mainChatBox', reply, 'ai');
+        const hasHi = /[\u0900-\u097F]/.test(reply);
+        speakOut(reply, hasHi ? 'hi' : 'en', null);
+      } catch (e) {
+        addChatMsg('mainChatBox', 'PC Gateway offline—check Wi-Fi IP in MIND tab.', 'sys');
+      } finally {
+        document.getElementById('coreStatus').innerText = 'Ready • Hindi-First & British Voice Active';
+      }
+    }
+
+    // ─── 5. Call Guardian ("Should I talk?" -> Hindi Conversation -> Recording) ─
+    function simulateCallPrompt() {
+      if (hasNative) {
+        PaiGenNative.simulateIncomingCall('Rohan Sharma', '+91 98765 43210');
+      } else {
+        if (confirm('Incoming Call from Rohan Sharma (+91 98765 43210)\n\nPaiGen asks: Should I talk?')) {
+          window.onNativeCallTakeover('Rohan Sharma', '+91 98765 43210');
+        }
+      }
+    }
+
+    window.onNativeCallTakeover = async function(callerName, callerNumber) {
+      switchTab('tab-core');
+      activeCall.active = true;
+      activeCall.callerName = callerName || 'Incoming Caller';
+      activeCall.callerId = callerNumber || 'Unknown';
+      activeCall.startTime = Date.now();
+      activeCall.transcript = [];
+      activeCall.latestPsych = { triage_tier: 'TIER_3_ROUTINE', psych_state: 'CALM_NEUTRAL', behavioral_insight: 'Active screening' };
+
+      document.getElementById('activeCallerTitle').innerText = `${activeCall.callerName} (${activeCall.callerId})`;
+      document.getElementById('callTranscriptBox').innerHTML = '';
+      document.getElementById('activeCallCard').classList.add('visible');
+
+      if (hasNative) PaiGenNative.startCallRecording();
+
+      if (activeCall.timerHandle) clearInterval(activeCall.timerHandle);
+      activeCall.timerHandle = setInterval(() => {
+        const sec = Math.floor((Date.now() - activeCall.startTime) / 1000);
+        const mm = String(Math.floor(sec / 60)).padStart(2, '0');
+        const ss = String(sec % 60).padStart(2, '0');
+        document.getElementById('callTimer').innerText = `${mm}:${ss}`;
+      }, 1000);
+
+      let opening = 'नमस्ते, मैं अर्जुन जी का AI असिस्टेंट पाइजेन बोल रहा हूँ। अर्जुन अभी थोड़ा व्यस्त हैं। बताइए, आपकी क्या मदद कर सकता हूँ?';
+      let audioB64 = '';
+      try {
+        const res = await fetch(SERVER_URL + '/api/telephony/session/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            caller_id: activeCall.callerId,
+            caller_name: activeCall.callerName,
+            preferred_lang: PREF_LANG === 'en' ? 'en' : 'hi'
+          })
+        });
+        const json = await res.json();
+        if (json.data) {
+          activeCall.callId = json.data.call_id;
+          opening = json.data.opening_speech || opening;
+          audioB64 = json.data.audio_base64 || '';
+        }
+      } catch (e) {}
+
+      activeCall.transcript.push({ role: 'paigen', text: opening });
+      addChatMsg('callTranscriptBox', opening, 'ai');
+      speakOut(opening, PREF_LANG === 'en' ? 'en' : 'hi', audioB64);
+    };
+
+    function sendCallerSpeechManual() {
+      const inp = document.getElementById('callerSimInput');
+      const txt = inp.value.trim();
+      if (!txt) return;
+      inp.value = '';
+      handleCallerUtterance(txt);
+    }
+
+    async function handleCallerUtterance(speech) {
+      activeCall.transcript.push({ role: 'caller', text: speech });
+      addChatMsg('callTranscriptBox', speech, 'caller');
+
+      let reply = 'जी धन्यवाद, मैंने आपकी बात रिकॉर्ड कर ली है। मैं अभी अर्जुन सर को सूचित करता हूँ।';
+      let lang = 'hi';
+      let audioB64 = '';
+      let psych = { psych_state: 'CALM_NEUTRAL', triage_tier: 'TIER_3_ROUTINE', behavioral_insight: 'Offline fallback' };
+
+      try {
+        const res = await fetch(SERVER_URL + '/api/telephony/converse', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            call_id: activeCall.callId,
+            caller_id: activeCall.callerId,
+            caller_name: activeCall.callerName,
+            caller_speech: speech,
+            history: activeCall.transcript,
+            preferred_lang: PREF_LANG,
+            include_audio: true
+          })
+        });
+        const json = await res.json();
+        if (json.data) {
+          activeCall.callId = json.data.call_id || activeCall.callId;
+          reply = json.data.reply_text || reply;
+          lang = json.data.language || 'hi';
+          audioB64 = json.data.audio_base64 || '';
+          psych = json.data.psychology || psych;
+        }
+      } catch (e) {
+        // Smart offline Hindi-first safeguard if PC server isn't reachable
+        const low = speech.toLowerCase();
+        if (/emergency|hospital|accident|अस्पताल|तुरंत|एक्सीडेंट/.test(low)) {
+          psych = { psych_state: 'URGENT_PANIC', triage_tier: 'TIER_1_EMERGENCY', behavioral_insight: 'Local emergency keyword trigger' };
+          reply = 'यह बहुत गंभीर स्थिति लग रही है। घबराएं नहीं, मैं अभी अर्जुन जी को तुरंत अलर्ट भेज रहा हूँ!';
+        } else if (/otp|kyc|lottery|loan|ओटीपी|लॉटरी/.test(low)) {
+          psych = { psych_state: 'DECEPTIVE_PUSHY', triage_tier: 'TIER_4_SPAM_MANIPULATION', behavioral_insight: 'Spam/OTP manipulation detected' };
+          reply = 'माफ़ कीजिए, अर्जुन सर कॉल पर कोई ओटीपी या बैंकिंग जानकारी साझा नहीं करते। धन्यवाद।';
+        }
+      }
+
+      activeCall.lang = lang;
+      activeCall.latestPsych = psych;
+      activeCall.transcript.push({ role: 'paigen', text: reply });
+      addChatMsg('callTranscriptBox', reply, 'ai');
+
+      const pills = document.getElementById('callPsychPills');
+      const urgentCls = (psych.triage_tier || '').includes('TIER_1') || (psych.triage_tier || '').includes('TIER_2') ? 'pill-urgent' : 'pill-ok';
+      pills.innerHTML = `
+        <span class="pill ${urgentCls}">${psych.triage_tier || 'TIER_3'}</span>
+        <span class="pill pill-hi">${psych.psych_state || 'CALM'}</span>
+        <span class="pill">${lang === 'hi' ? 'HINDI VOICE' : 'ENGLISH VOICE'}</span>
+      `;
+
+      speakOut(reply, lang, audioB64);
+    }
+
+    async function endAndSaveCall() {
+      if (!activeCall.active) return;
+      activeCall.active = false;
+      if (activeCall.timerHandle) clearInterval(activeCall.timerHandle);
+      document.getElementById('activeCallCard').classList.remove('visible');
+
+      const psych = activeCall.latestPsych || {};
+      const transcriptJson = JSON.stringify(activeCall.transcript);
+      const plainTranscript = activeCall.transcript.map(t => `${t.role === 'caller' ? 'Caller' : 'PaiGen'}: ${t.text}`).join('\n');
+
+      if (hasNative) {
+        const resStr = PaiGenNative.stopAndStoreCallRecording(
+          activeCall.callerId,
+          activeCall.callerName,
+          activeCall.lang,
+          psych.triage_tier || 'TIER_3_ROUTINE',
+          psych.psych_state || 'CALM_NEUTRAL',
+          psych.behavioral_insight || 'Recorded via PaiGen Guardian',
+          transcriptJson,
+          0
+        );
+        try {
+          const rec = JSON.parse(resStr);
+          if (rec.audio_base64) {
+            await fetch(SERVER_URL + '/api/telephony/recording', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                call_id: activeCall.callId,
+                caller_id: activeCall.callerId,
+                caller_name: activeCall.callerName,
+                filename: 'call.m4a',
+                duration_sec: rec.duration_sec || 0,
+                transcript: plainTranscript,
+                audio_base64: rec.audio_base64
+              })
+            });
+          }
+        } catch (e) {}
+      }
+
+      addChatMsg('mainChatBox', `📞 Call with ${activeCall.callerName} recorded & saved to Vault.`, 'sys');
+      loadVault();
+      switchTab('tab-vault');
+    }
+
+    // ─── 6. Remote PC Controls ─────────────────────────────────────────────────
+    function refreshScreen() {
+      document.getElementById('pcScreenImg').src = SERVER_URL + '/api/screen?t=' + Date.now();
+    }
+
+    function toggleAutoScreen() {
+      const btn = document.getElementById('btnAutoScreen');
+      if (autoScreenTimer) {
+        clearInterval(autoScreenTimer);
+        autoScreenTimer = null;
+        btn.innerText = 'Auto: OFF';
+      } else {
+        refreshScreen();
+        autoScreenTimer = setInterval(refreshScreen, 2000);
+        btn.innerText = 'Auto: ON';
+      }
+    }
+
+    async function onScreenTap(ev) {
+      const img = document.getElementById('pcScreenImg');
+      const rect = img.getBoundingClientRect();
+      const xNorm = (ev.clientX - rect.left) / rect.width;
+      const yNorm = (ev.clientY - rect.top) / rect.height;
+      const mode = document.getElementById('tapMode').value;
+      await pcInput(mode, xNorm, yNorm);
+      setTimeout(refreshScreen, 350);
+    }
+
+    async function pcInput(inputType, xNorm = 0.5, yNorm = 0.5, key = '', text = '') {
+      try {
+        await fetch(SERVER_URL + '/api/pc/input', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ input_type: inputType, x_norm: xNorm, y_norm: yNorm, key, text })
+        });
+      } catch (e) {}
+    }
+
+    async function sendTypeToPc() {
+      const inp = document.getElementById('pcTypeText');
+      const txt = inp.value;
+      if (!txt) return;
+      inp.value = '';
+      await pcInput('type', 0.5, 0.5, '', txt);
+      setTimeout(refreshScreen, 300);
+    }
+
+    async function pcAction(action) {
+      try {
+        await fetch(SERVER_URL + '/api/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action })
+        });
+      } catch (e) {}
+    }
+
+    async function launchApp(app) {
+      try {
+        await fetch(SERVER_URL + '/api/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'launch', app })
+        });
+        setTimeout(refreshScreen, 900);
+      } catch (e) {}
+    }
+
+    // ─── 7. Call Recordings Vault ──────────────────────────────────────────────
+    async function loadVault() {
+      const list = document.getElementById('vaultList');
+      let items = [];
+      if (hasNative) {
+        try {
+          const localRows = JSON.parse(PaiGenNative.getLocalCallVaultJson());
+          localRows.forEach(r => items.push({ source: 'PHONE', ...r }));
+        } catch (e) {}
+      }
+      try {
+        const res = await fetch(SERVER_URL + '/api/telephony/calls');
+        const remoteRows = await res.json();
+        remoteRows.forEach(r => items.push({ source: 'PC', ...r }));
+      } catch (e) {}
+
+      if (!items.length) {
+        list.innerHTML = '<div style="font-size:12px;color:var(--muted);text-align:center;padding:12px;">No recorded calls yet.</div>';
+        return;
+      }
+
+      list.innerHTML = '';
+      items.slice(0, 25).forEach(c => {
+        const card = document.createElement('div');
+        card.className = 'vault-item';
+        const d = new Date((c.timestamp || 0) * 1000).toLocaleString();
+        const tier = c.triage_tier || (c.psychology && c.psychology.triage_tier) || (c.is_urgent ? 'TIER_2_HIGH' : 'TIER_3_ROUTINE');
+        const state = c.psych_state || (c.psychology && c.psychology.psych_state) || 'LOGGED';
+        const urgentCls = tier.includes('TIER_1') || tier.includes('TIER_2') ? 'pill-urgent' : 'pill-ok';
+
+        let transcriptTxt = c.transcript || '';
+        if (!transcriptTxt && c.transcript_json) {
+          try {
+            transcriptTxt = JSON.parse(c.transcript_json).map(t => `${t.role}: ${t.text}`).join('\n');
+          } catch (e) {}
+        }
+
+        let audioBtnHtml = '';
+        if (c.audio_path && hasNative) {
+          const safePath = c.audio_path.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+          audioBtnHtml = `<button class="btn btn-cyan btn-sm" onclick="PaiGenNative.playLocalRecording('${safePath}')">▶ Play Recording (${Number(c.duration_sec || 0).toFixed(1)}s)</button>`;
+        } else if (c.audio_url) {
+          audioBtnHtml = `<audio controls src="${SERVER_URL}${c.audio_url}" style="width:100%;height:34px;"></audio>`;
+        }
+
+        card.innerHTML = `
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <strong>${c.caller_name || c.caller_id} <span style="font-size:11px;color:var(--muted);">(${c.source})</span></strong>
+            <span class="pill ${urgentCls}">${tier}</span>
+          </div>
+          <div style="font-size:11px;color:var(--muted);">${c.caller_id} • ${d} • State: ${state}</div>
+          ${transcriptTxt ? `<div class="vault-transcript">${transcriptTxt}</div>` : ''}
+          ${audioBtnHtml}
+        `;
+        list.appendChild(card);
+      });
+    }
+
+    // ─── 8. Psychology Live Tester & Permissions ───────────────────────────────
+    async function runPsychTest() {
+      const txt = document.getElementById('psychTestInput').value.trim();
+      if (!txt) return;
+      try {
+        const res = await fetch(SERVER_URL + '/api/psychology/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: txt, speaker_role: 'caller' })
+        });
+        const data = await res.json();
+        const p = data.profile;
+        document.getElementById('psychStateBadge').innerText = `${p.psych_state} (${p.recommended_response_language.toUpperCase()})`;
+        document.getElementById('valScore').innerText = (p.valence >= 0 ? '+' : '') + p.valence.toFixed(2);
+        document.getElementById('valBar').style.width = ((p.valence + 1) * 50).toFixed(0) + '%';
+        document.getElementById('aroScore').innerText = Math.round(p.arousal * 100) + '%';
+        document.getElementById('aroBar').style.width = Math.round(p.arousal * 100) + '%';
+        document.getElementById('truScore').innerText = Math.round(p.trust_openness * 100) + '%';
+        document.getElementById('truBar').style.width = Math.round(p.trust_openness * 100) + '%';
+        document.getElementById('manScore').innerText = Math.round(p.manipulation_risk * 100) + '%';
+        document.getElementById('manBar').style.width = Math.round(p.manipulation_risk * 100) + '%';
+        document.getElementById('cogScore').innerText = Math.round(p.cognitive_load * 100) + '%';
+        document.getElementById('cogBar').style.width = Math.round(p.cognitive_load * 100) + '%';
+        document.getElementById('psychInsightText').innerText = `[${p.triage_tier}] ${p.behavioral_insight}`;
+      } catch (e) {
+        document.getElementById('psychInsightText').innerText = 'Connect to PC Gateway to test full ML Psychology Engine.';
+      }
+    }
+
+    function refreshPermissions() {
+      if (!hasNative) {
+        document.getElementById('permStatus').innerText = 'Browser Preview Mode (install APK for Call Guardian & Overlay).';
+        return;
+      }
+      try {
+        const p = JSON.parse(PaiGenNative.getPermissionStatusJson());
+        document.getElementById('permStatus').innerText =
+          `Mic: ${p.mic ? 'OK' : 'NEEDED'} | Phone: ${p.phone ? 'OK' : 'NEEDED'} | Answer Calls: ${p.answer_calls ? 'OK' : 'NEEDED'} | Overlay: ${p.overlay ? 'OK' : 'TAP ENABLE'}`;
+      } catch (e) {}
+    }
+    function grantOverlay() { if (hasNative) PaiGenNative.requestOverlayPermission(); }
+    function grantCallScreen() { if (hasNative) PaiGenNative.requestCallScreeningRole(); }
+
+    loadConfig();
+    pingServer();
+    setInterval(pingServer, 12000);
+  </script>
+</body>
+</html>

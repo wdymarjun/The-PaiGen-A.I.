@@ -377,6 +377,57 @@ class CurriculumDatasetGenerator:
 
         return records
 
+    def generate_psychology_call_curriculum(self) -> List[Dict[str, Any]]:
+        """Level 10: Caller Psychology Profiling, Manipulation Defense & Hindi-First Call Dialogue."""
+        from paigen.brain.psychology_ml import PsychologyMLClassifier
+        from paigen.brain.psychology import STRATEGY_MAP
+
+        records = []
+        corpus = PsychologyMLClassifier.load_training_corpus()
+
+        hindi_responses = {
+            "TIER_1_EMERGENCY": "मैं समझ गया, यह अत्यंत गंभीर आपात स्थिति है। घबराएं नहीं, मैं अभी तुरंत अर्जुन सर को आपकी कॉल से जोड़ रहा हूँ।",
+            "TIER_2_HIGH_PRIORITY": "जी धन्यवाद, मैंने आपकी यह जरूरी बात और प्राथमिकता नोट कर ली है। मैं अभी अर्जुन सर को तुरंत अलर्ट भेज रहा हूँ ताकि वे आपसे शीघ्र संपर्क कर सकें।",
+            "TIER_3_ROUTINE": "जी नमस्ते, अर्जुन सर अभी अपने कार्य में व्यस्त हैं। मैंने आपका संदेश और विवरण सुरक्षित नोट कर लिया है, वे फ्री होते ही आपसे बात करेंगे।",
+            "TIER_4_SPAM_MANIPULATION": "अर्जुन सर कॉल पर कोई भी ओटीपी, बैंकिंग विवरण या अनचाहे ऑफर स्वीकार नहीं करते। कृपया दोबारा कॉल न करें। धन्यवाद।",
+        }
+        english_responses = {
+            "TIER_1_EMERGENCY": "Understood—this is a critical emergency. Stay calm; I am alerting Mr. Arjun and connecting you immediately.",
+            "TIER_2_HIGH_PRIORITY": "Thank you for clarifying the urgency. I have logged your high-priority message and dispatched an instant alert to Mr. Arjun's workstation.",
+            "TIER_3_ROUTINE": "Thank you. Mr. Arjun is currently in a deep-work session. I have recorded your message in his call vault and he will follow up shortly.",
+            "TIER_4_SPAM_MANIPULATION": "Mr. Arjun does not share sensitive credentials or accept unsolicited promotional offers over calls. Goodbye.",
+        }
+
+        for row in corpus:
+            state = row["psych_state"]
+            tier = row["triage_tier"]
+            lang = row["language"]
+            vec = row["affect_vector"]
+            meta = STRATEGY_MAP.get(state, STRATEGY_MAP["CALM_NEUTRAL"])
+            is_hi = lang in ("hi", "hinglish")
+            spoken_reply = hindi_responses[tier] if is_hi else english_responses[tier]
+
+            records.append({
+                "stage": 3,
+                "category": "psychology_call_screening",
+                "instruction": (
+                    "Analyze the caller's psychological state, emotional coordinates, and triage tier, "
+                    "then deliver a natural spoken response strictly matching the caller's language "
+                    "(Hindi-first if speaker uses Hindi/Hinglish)."
+                ),
+                "input": f"[INCOMING CALL TRANSCRIPT]: {row['text']}",
+                "output": (
+                    f"PSYCH_STATE: {state}\n"
+                    f"TRIAGE_TIER: {tier}\n"
+                    f"STRATEGY: {meta['strategy']}\n"
+                    f"AFFECT_VECTOR: valence={vec[0]:+.2f}, arousal={vec[1]:.2f}, trust={vec[2]:.2f}, manip_risk={vec[3]:.2f}, cog_load={vec[4]:.2f}\n"
+                    f"SPOKEN_REPLY: {spoken_reply}"
+                ),
+                "metadata": {"state": state, "tier": tier, "language": lang},
+            })
+
+        return records
+
     def export_all(self) -> Path:
         """Compiles and exports the complete curriculum into JSONL."""
         all_records = (
@@ -388,7 +439,8 @@ class CurriculumDatasetGenerator:
             self.generate_mathematics_curriculum() +
             self.generate_biology_curriculum() +
             self.generate_visual_emotion_curriculum() +
-            self.generate_affective_scenarios_curriculum()
+            self.generate_affective_scenarios_curriculum() +
+            self.generate_psychology_call_curriculum()
         )
 
         output_file = self.output_dir / "paigen_language_curriculum.jsonl"
@@ -405,9 +457,9 @@ class CurriculumDatasetGenerator:
                         {
                             "role": "system",
                             "content": (
-                                "You are PaiGen AI, a 100% local, privacy-first companion created by Arjun Singh. "
-                                "You understand English, Hindi, and Hinglish natively, seamlessly adapting between "
-                                "an Empathetic Companion and a Tactical Strategy Advisor."
+                                "You are PaiGen AI, a 100% local, privacy-first companion and call guardian created by Arjun Singh. "
+                                "You understand English, Hindi, and Hinglish natively, diagnose human psychology accurately, "
+                                "and respond in natural Hindi whenever a caller/user speaks Hindi or Hinglish."
                             )
                         },
                         {"role": "user", "content": f"{item['instruction']}\n{item['input']}".strip()},
