@@ -1303,8 +1303,10 @@ class PaiGenApp:
             urllib.request.urlopen(f"{url}/api/telephony/calls", timeout=0.8)
         except Exception:
             try:
+                repo_dir = os.path.dirname(os.path.abspath(__file__))
                 subprocess.Popen(
                     [sys.executable, "-m", "paigen.server.gateway"],
+                    cwd=repo_dir,
                     creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == "nt" else 0
                 )
             except Exception:
