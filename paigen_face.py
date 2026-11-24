@@ -641,11 +641,41 @@ def _mic_worker():
         ui_msg_q.put(f"🎤 {clean_text}")
         chat_q.put(clean_text)
 
+# ─── Telephony Call Listener ──────────────────────────────────────────────────
+def _telephony_call_listener():
+    """Background polling worker for incoming screened phone calls and voicemails."""
+    last_seen_id = None
+    telephony_inst = None
+    try:
+        from paigen.mobile.telephony_bridge import TelephonyBridge
+        telephony_inst = TelephonyBridge.get_instance()
+    except Exception:
+        pass
+
+    while True:
+        try:
+            if telephony_inst:
+                calls = telephony_inst.list_calls(limit=1)
+                if calls:
+                    latest = calls[0]
+                    cid = latest.get("call_id")
+                    if last_seen_id is None:
+                        last_seen_id = cid
+                    elif cid != last_seen_id:
+                        last_seen_id = cid
+                        caller = latest.get("caller_number", "Unknown")
+                        urgency = latest.get("urgency_level", "ROUTINE")
+                        msg = latest.get("caller_message", "")
+                        ui_msg_q.put(f"📞 SCREENED CALL [{caller} - {urgency}]: \"{msg}\"")
+        except Exception:
+            pass
+        time.sleep(3.0)
+
 # ─── Brain worker ─────────────────────────────────────────────────────────────
 SYS = (
-    "You are PaiGen — an advanced local AI companion created by Arjun Singh with full computer vision and desktop control. "
+    "You are PaiGen — an advanced local personal executive assistant and AI companion created by Arjun Singh with full computer vision, desktop control, and mobile telephony screening. "
     "You have real-time perception through the camera and can see Arjun's face, room, and live computer screen. "
-    "You have full OS controls: you can analyze the screen, open apps, search the web, control volume, and execute desktop commands. "
+    "You have full OS controls: you can analyze the screen, open apps, search the web, control volume, screen mobile calls, and execute desktop commands. "
     "Be proactive, warm, and concise (2-3 sentences max). Answer questions directly based on visible screen and camera evidence."
 )
 
@@ -1057,6 +1087,16 @@ class PaiGenApp:
         )
         self.mic_btn.pack(side="left", padx=6)
 
+        self.mobile_btn = tk.Button(
+            controls_frame, text="📱 Mobile: 8765",
+            bg="#0F172A", fg="#38BDF8",
+            activebackground="#1E293B", activeforeground="#FFFFFF",
+            font=("Segoe UI", 9, "bold"), relief="flat", bd=0,
+            padx=12, pady=4, cursor="hand2",
+            command=self._on_click_mobile_hub
+        )
+        self.mobile_btn.pack(side="left", padx=6)
+
         # 1px border separator below header
         sep = tk.Frame(root, bg=self.BORDER_SUBTLE, height=1)
         sep.pack(fill="x", side="top")
@@ -1244,8 +1284,46 @@ class PaiGenApp:
         self._append_chat(text, tag="user")
         chat_q.put(text)
 
+    def _on_click_mobile_hub(self):
+        """Launches / displays the mobile gateway URL and opens in browser."""
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+        except Exception:
+            ip = "127.0.0.1"
+        finally:
+            s.close()
+
+        url = f"http://{ip}:8765"
+        # Check if gateway is running, else launch background process
+        try:
+            import urllib.request
+            urllib.request.urlopen(f"{url}/api/telephony/calls", timeout=0.8)
+        except Exception:
+            try:
+                subprocess.Popen(
+                    [sys.executable, "-m", "paigen.server.gateway"],
+                    creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == "nt" else 0
+                )
+            except Exception:
+                pass
+
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(url)
+        except Exception:
+            pass
+
+        self._append_chat(f"📱 Mobile Hub: {url} (URL copied!). Open this in your phone's browser.", tag="action")
+        try:
+            webbrowser.open(url)
+        except Exception:
+            pass
+
     def _start_threads(self):
-        threads = [_tts_worker, _camera_worker, _mic_worker, _brain_worker]
+        threads = [_tts_worker, _camera_worker, _mic_worker, _brain_worker, _telephony_call_listener]
         if AUDIO_TRANSIENT_OK:
             threads.append(_acoustic_clap_worker)
         for fn in threads:

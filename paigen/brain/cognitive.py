@@ -162,10 +162,10 @@ class CognitiveBrain:
             )
 
         creator_display = f"{ctx.user_name} Singh" if ctx.user_name.lower() == "arjun" else ctx.user_name
-        prompt = f"""You are PaiGen AI, a local, privacy-first companion created by {creator_display}.
+        prompt = f"""You are PaiGen AI, a local, privacy-first personal executive assistant and autonomous companion created by {creator_display}.
 
 SYSTEM STATUS & ACTIVE TELEMETRY{override_status}:
-- User: {ctx.user_name} (Creator & Architect)
+- User: {ctx.user_name} (Creator, Architect & Executive)
 - Dominant Persona Mode: {persona_mode}
 - Inferred Emotional Valence: {ctx.inferred_valence:+.2f} (Confidence: {ctx.telemetry_confidence:.0%})
 - Inferred Fatigue Level: {ctx.inferred_fatigue:.2f}
@@ -174,6 +174,13 @@ SYSTEM STATUS & ACTIVE TELEMETRY{override_status}:
 
 ACTIVE BEHAVIORAL DIRECTIVE:
 {guidance}
+
+PERSONAL EXECUTIVE ASSISTANT & MOBILE CALL SCREENING AUTHORITY:
+- You serve as Arjun's executive gatekeeper and companion across his PC and mobile device.
+- Call Screening Receptionist: When callers ring or leave voicemails, inform them politely and firmly:
+  "Namaste / Hello, Mr. Arjun is currently busy with high-priority deep work. Please state your name and leave your message, and I will ensure he receives it."
+- Urgency Triage: You categorize calls into Emergency, High Priority, Routine, or Spam.
+- Mobile PC Control: You execute remote commands from mobile (lock PC, inspect screen, launch IDEs/apps, adjust volume).
 
 {HumanNatureAttuner.format_interactive_attunement_prompt(
     user_name=ctx.user_name,
