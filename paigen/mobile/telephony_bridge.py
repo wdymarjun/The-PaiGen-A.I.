@@ -75,11 +75,11 @@ class TelephonyBridge:
         c_name = caller_name or "Unknown Caller"
         c_id = caller_id or "Anonymous"
 
-        # 1. Default Receptionist Verbal Response
+        # 1. Default Receptionist Verbal Response (v3.0 Operating Kernel)
         receptionist_greeting = (
-            f"Hello. You have reached Mr. Arjun Singh's automated assistant, PaiGen. "
-            f"Arjun is currently focused in deep work and unavailable for direct phone calls. "
-            f"Please state your message and whether your call is urgent, and I will relay it to his desk immediately."
+            "Namaste / Hello. You have reached Mr. Arjun Singh's autonomous executive assistant, PaiGen. "
+            "Mr. Arjun is currently in an uninterrupted deep-work session. "
+            "Please state your name and purpose, and I will ensure it is prioritized accordingly."
         )
 
         # 2. Evaluate urgency if a message transcript was captured
@@ -110,16 +110,20 @@ class TelephonyBridge:
 
     def classify_urgency(self, message: str, caller_name: str) -> Tuple[bool, str]:
         """
-        Uses local Ollama to accurately classify whether the message is a genuine emergency/high-priority matter.
+        Uses local Ollama to accurately triage incoming messages into v3.0 priority tiers:
+        [TIER 1: FAMILY / EMERGENCY] | [TIER 2: HIGH PRIORITY] | [TIER 3: ROUTINE] | [TIER 4: SPAM / NOISE]
         """
         prompt = (
-            "You are PaiGen's Telephony Triage Officer. Analyze this incoming phone message for Arjun Singh.\n"
+            "You are PaiGen's Telephony Triage Officer for Arjun Singh.\n"
             f"Caller: {caller_name}\n"
             f"Message: \"{message}\"\n\n"
-            "Determine if this is an URGENT emergency (family crisis, time-critical interview/exam, urgent incident) "
-            "or a ROUTINE/CASUAL/SPAM inquiry.\n\n"
+            "Classify this screened interruption into EXACTLY one of the four triage tiers:\n"
+            "[TIER 1: FAMILY / EMERGENCY] - Immediate crisis, safety, hospital, accident, urgent family matter.\n"
+            "[TIER 2: HIGH PRIORITY] - Critical time-bound deadline, exam, scheduled interview, production failure.\n"
+            "[TIER 3: ROUTINE] - Casual catch-up, non-urgent project check-in, normal inquiry.\n"
+            "[TIER 4: SPAM / NOISE] - Sales pitch, telemarketing, robocall, unsolicited offers.\n\n"
             "Format your reply EXACTLY like this:\n"
-            "URGENT: [YES or NO]\n"
+            "TIER: [TIER 1 or TIER 2 or TIER 3 or TIER 4]\n"
             "REASON: [1 sentence explanation]"
         )
 
@@ -139,18 +143,29 @@ class TelephonyBridge:
             with urllib.request.urlopen(req, timeout=12) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 reply = data.get("message", {}).get("content", "").strip()
-                is_urgent = "URGENT: YES" in reply.upper()
+                tier_match = "TIER 1" in reply or "TIER 2" in reply
+                is_urgent = tier_match
                 reason = "Evaluated by AI"
                 if "REASON:" in reply:
                     reason = reply.split("REASON:")[1].strip().split("\n")[0]
+                if "TIER:" in reply:
+                    tier_str = reply.split("TIER:")[1].strip().split("\n")[0]
+                    reason = f"[{tier_str}] {reason}"
                 return is_urgent, reason
-        except Exception as e:
-            # Fallback heuristic
-            urgent_words = ("emergency", "hospital", "urgent", "immediately", "critical", "accident", "exam", "interview")
+        except Exception:
+            # Deterministic Fallback Heuristic matching v3.0 Tiers
             lower = message.lower()
-            if any(w in lower for w in urgent_words):
-                return True, "Triggered emergency keyword heuristic"
-            return False, f"Offline evaluation ({e})"
+            tier1_words = ("emergency", "hospital", "critical", "accident", "immediately")
+            tier2_words = ("urgent", "exam", "interview", "deadline", "production", "incident")
+            tier4_words = ("lottery", "prize", "credit card", "loan", "free cash", "casino", "subscription")
+
+            if any(w in lower for w in tier1_words):
+                return True, "[TIER 1: FAMILY / EMERGENCY] Triggered emergency keyword heuristic"
+            if any(w in lower for w in tier2_words):
+                return True, "[TIER 2: HIGH PRIORITY] Triggered high-priority keyword heuristic"
+            if any(w in lower for w in tier4_words):
+                return False, "[TIER 4: SPAM / NOISE] Filtered as unsolicited promotional noise"
+            return False, "[TIER 3: ROUTINE] Standard conversational inquiry"
 
     def list_calls(self, limit: int = 50) -> List[Dict[str, Any]]:
         """Returns the recent history of screened calls and recorded voicemails."""
@@ -168,8 +183,9 @@ class TelephonyBridge:
         Generates standard TwiML XML for carrier VoIP integration (Twilio / Plivo / SIP).
         """
         greeting = (
-            "Hello. You have reached Mr. Arjun Singh's autonomous assistant, PaiGen. "
-            "Mr. Arjun is currently busy in deep work. Please speak your message after the tone."
+            "Namaste / Hello. You have reached Mr. Arjun Singh's autonomous executive assistant, PaiGen. "
+            "Mr. Arjun is currently in an uninterrupted deep-work session. "
+            "Please state your name and purpose after the tone, and I will ensure it is prioritized accordingly."
         )
         xml = (
             '<?xml version="1.0" encoding="UTF-8"?>\n'

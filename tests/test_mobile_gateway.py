@@ -53,7 +53,7 @@ class TestTelephonyBridge(unittest.TestCase):
         twiml = self.bridge.generate_twiml()
         self.assertIn("<Response>", twiml)
         self.assertIn("<Say", twiml)
-        self.assertIn("Mr. Arjun is currently busy", twiml)
+        self.assertIn("Mr. Arjun is currently in an uninterrupted deep-work session", twiml)
         self.assertIn("<Record", twiml)
 
 
