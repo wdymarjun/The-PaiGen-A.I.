@@ -71,6 +71,12 @@ class TestPsychologyML(unittest.TestCase):
         self.assertIn("[PAIGEN HUMAN-STATE TELEMETRY]", injection)
         self.assertLess(len(injection.split()), 120)
 
+    def test_digital_arrest_indian_scam_detection(self):
+        pred = self.clf.predict("Sir CBI officer bol raha hoon digital arrest avoid karne ke liye UPI transfer kijiye")
+        self.assertEqual(pred["triage_tier"], "TIER_4_SPAM_MANIPULATION")
+        self.assertEqual(pred["psych_state"], "DECEPTIVE_PUSHY")
+        self.assertGreater(pred["manipulation_risk"], 0.6)
+
     def test_human_condition_calm_tactical_fallback(self):
         engine = HumanConditionEngine()
         diag = engine.diagnose_state(CognitiveStateInput(user_text="Show current status.", hour_of_day=11))

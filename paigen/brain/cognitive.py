@@ -268,11 +268,21 @@ STRICT INVARIANT: You run 100% locally on localhost. Zero cloud calls."""
         system_prompt = self.build_dynamic_system_prompt(ctx, user_query=user_input)
         state_block = self._compile_human_state_block(user_input, ctx)
 
+        user_payload = user_input
+        if not any(
+            user_input.lstrip().startswith(prefix)
+            for prefix in ("[CHANNEL: ARJUN]", "[CHANNEL: VISION]", "[CHANNEL: CALL]")
+        ):
+            if "[Live Screen Context]" in user_input or ctx.perception_signals:
+                user_payload = f"[CHANNEL: VISION] {user_input}"
+            else:
+                user_payload = f"[CHANNEL: ARJUN] {user_input}"
+
         messages = [{"role": "system", "content": system_prompt}]
         for rec in paired_history:
             messages.append({"role": rec.role, "content": rec.content})
         messages.append({"role": "system", "content": state_block})
-        messages.append({"role": "user", "content": user_input})
+        messages.append({"role": "user", "content": user_payload})
 
         # Autonomous Research & Tool Engine Integration (AutoLearner)
         research_keywords = ("search", "wiki", "look up", "find", "who was", "what is", "remember", "learn", "latest", "benchmark")
@@ -339,11 +349,21 @@ STRICT INVARIANT: You run 100% locally on localhost. Zero cloud calls."""
         system_prompt = self.build_dynamic_system_prompt(ctx, user_query=user_input)
         state_block = self._compile_human_state_block(user_input, ctx)
 
+        user_payload = user_input
+        if not any(
+            user_input.lstrip().startswith(prefix)
+            for prefix in ("[CHANNEL: ARJUN]", "[CHANNEL: VISION]", "[CHANNEL: CALL]")
+        ):
+            if "[Live Screen Context]" in user_input or ctx.perception_signals:
+                user_payload = f"[CHANNEL: VISION] {user_input}"
+            else:
+                user_payload = f"[CHANNEL: ARJUN] {user_input}"
+
         messages = [{"role": "system", "content": system_prompt}]
         for rec in paired_history:
             messages.append({"role": rec.role, "content": rec.content})
         messages.append({"role": "system", "content": state_block})
-        messages.append({"role": "user", "content": user_input})
+        messages.append({"role": "user", "content": user_payload})
 
         # Autonomous Research & Tool Engine Integration (AutoLearner)
         research_keywords = ("search", "wiki", "look up", "find", "who was", "what is", "remember", "learn", "latest", "benchmark")

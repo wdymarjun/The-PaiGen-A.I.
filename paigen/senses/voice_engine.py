@@ -41,13 +41,22 @@ except ImportError:
 
 def clean_text_for_speech(raw_text: str) -> str:
     """
-    Strips code blocks, markdown symbols, raw URLs, and emojis so speech flows naturally.
+    Strips XML call telemetry tags (<meta ... />, <say>), code blocks, markdown symbols,
+    raw URLs, and emojis so speech flows naturally with zero TTS bleed.
     """
     if not raw_text:
         return ""
 
+    # If <say>...</say> is present, extract strictly the spoken body and drop <meta ... />
+    say_match = re.search(r"<say>([\s\S]*?)</say>", raw_text)
+    if say_match:
+        text = say_match.group(1)
+    else:
+        text = re.sub(r"<meta\b[^>]*/?>", " ", raw_text)
+        text = re.sub(r"</?say>", " ", text)
+
     # Remove code blocks ```...```
-    text = re.sub(r"```[\s\S]*?```", " Code omitted. ", raw_text)
+    text = re.sub(r"```[\s\S]*?```", " Code omitted. ", text)
     # Remove inline code `...`
     text = re.sub(r"`[^`]*`", "", text)
     # Remove markdown links [text](url) -> text

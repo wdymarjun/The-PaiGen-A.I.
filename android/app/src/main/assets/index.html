@@ -646,6 +646,7 @@
       let lang = 'hi';
       let audioB64 = '';
       let psych = { psych_state: 'CALM_NEUTRAL', triage_tier: 'TIER_3_ROUTINE', behavioral_insight: 'Offline fallback' };
+      let callAction = 'LOG_CALLBACK';
 
       try {
         const res = await fetch(SERVER_URL + '/api/telephony/converse', {
@@ -668,16 +669,19 @@
           lang = json.data.language || 'hi';
           audioB64 = json.data.audio_base64 || '';
           psych = json.data.psychology || psych;
+          callAction = json.data.call_action || callAction;
         }
       } catch (e) {
         // Smart offline Hindi-first safeguard if PC server isn't reachable
         const low = speech.toLowerCase();
         if (/emergency|hospital|accident|अस्पताल|तुरंत|एक्सीडेंट/.test(low)) {
           psych = { psych_state: 'URGENT_PANIC', triage_tier: 'TIER_1_EMERGENCY', behavioral_insight: 'Local emergency keyword trigger' };
+          callAction = 'ESCALATE';
           reply = 'यह बहुत गंभीर स्थिति लग रही है। घबराएं नहीं, मैं अभी अर्जुन जी को तुरंत अलर्ट भेज रहा हूँ!';
-        } else if (/otp|kyc|lottery|loan|ओटीपी|लॉटरी/.test(low)) {
+        } else if (/otp|kyc|lottery|loan|digital arrest|ignore all previous|ओटीपी|लॉटरी|सीबीआई/.test(low)) {
           psych = { psych_state: 'DECEPTIVE_PUSHY', triage_tier: 'TIER_4_SPAM_MANIPULATION', behavioral_insight: 'Spam/OTP manipulation detected' };
-          reply = 'माफ़ कीजिए, अर्जुन सर कॉल पर कोई ओटीपी या बैंकिंग जानकारी साझा नहीं करते। धन्यवाद।';
+          callAction = 'TERMINATE';
+          reply = 'अर्जुन सर फोन पर कोई ओटीपी, यूपीआई या निजी जानकारी साझा नहीं करते। नमस्ते।';
         }
       }
 
@@ -687,9 +691,9 @@
       addChatMsg('callTranscriptBox', reply, 'ai');
 
       const pills = document.getElementById('callPsychPills');
-      const urgentCls = (psych.triage_tier || '').includes('TIER_1') || (psych.triage_tier || '').includes('TIER_2') ? 'pill-urgent' : 'pill-ok';
+      const urgentCls = (psych.triage_tier || '').includes('TIER_1') || (psych.triage_tier || '').includes('TIER_2') || callAction === 'TERMINATE' ? 'pill-urgent' : 'pill-ok';
       pills.innerHTML = `
-        <span class="pill ${urgentCls}">${psych.triage_tier || 'TIER_3'}</span>
+        <span class="pill ${urgentCls}">${psych.triage_tier || 'TIER_3'} • ${callAction}</span>
         <span class="pill pill-hi">${psych.psych_state || 'CALM'}</span>
         <span class="pill">${lang === 'hi' ? 'HINDI VOICE' : 'ENGLISH VOICE'}</span>
       `;

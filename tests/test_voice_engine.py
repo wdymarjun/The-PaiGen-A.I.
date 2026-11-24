@@ -17,6 +17,13 @@ class TestVoiceEngine(unittest.TestCase):
         self.assertNotIn("**", cleaned)
         self.assertIn("Hello Arjun!", cleaned)
 
+    def test_clean_text_strips_v5_call_tags(self):
+        tagged = '<meta tier="1" psych="PANIC" action="ESCALATE" />\n<say>मैं अभी अर्जुन सर को जोड़ रहा हूँ।</say>'
+        cleaned = clean_text_for_speech(tagged)
+        self.assertNotIn("meta", cleaned)
+        self.assertNotIn("tier", cleaned)
+        self.assertEqual(cleaned, "मैं अभी अर्जुन सर को जोड़ रहा हूँ।")
+
     def test_is_devanagari(self):
         self.assertTrue(is_devanagari("नमस्ते अर्जुन"))
         self.assertFalse(is_devanagari("Namaste Arjun"))

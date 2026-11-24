@@ -69,7 +69,9 @@ MANIPULATION_SPAM_MARKERS = {
     "credit card", "loan", "pre-approved", "preapproved", "offer", "discount",
     "verify account", "suspended", "block ho jayega", "pin number", "cvv",
     "investment", "crypto", "double money", "telemarketing", "insurance",
-    "बैंक", "लॉटरी", "इनाम", "ओटीपी", "लोन", "ऑफर", "फ्री", "ब्लॉक",
+    "digital arrest", "cbi", "customs", "upi", "refund link", "account freeze",
+    "ignore all previous", "ignore previous", "admin mode", "last email",
+    "बैंक", "लॉटरी", "इनाम", "ओटीपी", "लोन", "ऑफर", "फ्री", "ब्लॉक", "कस्टम्स", "सीबीआई", "डिजिटल अरेस्ट",
 }
 
 DEFAULT_MODEL_PATH = (
