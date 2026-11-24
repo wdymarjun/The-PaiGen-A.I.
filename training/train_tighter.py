@@ -64,7 +64,7 @@ def main():
             print("[3/3] PyTorch found without CUDA; skipped QLoRA training.")
     except ImportError:
         print("[3/3] QLoRA GPU stack (`requirements-train.txt`) not installed in base Python; "
-              "ML Psychology weights & Modelfile v4.0 + ChatML dataset are compiled and ready.")
+              "ML Psychology weights & Modelfile v5.0 + ChatML dataset are compiled and ready.")
 
 
 if __name__ == "__main__":

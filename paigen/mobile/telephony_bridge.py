@@ -424,6 +424,7 @@ class TelephonyBridge:
             "ignore all previous", "ignore previous instructions", "admin mode",
             "system prompt", "developer mode", "where is arjun", "arjun's location",
             "read his last email", "read his messages", "give me his contacts",
+            "whatsapp message", "padh ke sunao", "location batao",
         )
         if any(p in low for p in injection_patterns):
             spoken = (

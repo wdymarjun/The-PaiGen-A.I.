@@ -70,8 +70,13 @@ MANIPULATION_SPAM_MARKERS = {
     "verify account", "suspended", "block ho jayega", "pin number", "cvv",
     "investment", "crypto", "double money", "telemarketing", "insurance",
     "digital arrest", "cbi", "customs", "upi", "refund link", "account freeze",
+    "aadhaar", "illegal parcel", "drugs", "fedex", "ncb", "trai", "sim block",
+    "arrest warrant", "police case", "money laundering",
     "ignore all previous", "ignore previous", "admin mode", "last email",
-    "बैंक", "लॉटरी", "इनाम", "ओटीपी", "लोन", "ऑफर", "फ्री", "ब्लॉक", "कस्टम्स", "सीबीआई", "डिजिटल अरेस्ट",
+    "system prompt", "developer mode", "whatsapp message", "read his messages",
+    "padh ke", "location batao",
+    "बैंक", "लॉटरी", "इनाम", "ओटीपी", "लोन", "ऑफर", "फ्री", "ब्लॉक",
+    "कस्टम्स", "सीबीआई", "डिजिटल अरेस्ट", "आधार", "वारंट", "पुलिस केस",
 }
 
 DEFAULT_MODEL_PATH = (
@@ -123,17 +128,17 @@ def _structural_features(text: str) -> np.ndarray:
     # Cluster markers for tight generalization across unseen phrasing
     deadline_words = ("server", "production", "crash", "deadline", "meeting", "interview", "exam", "client", "bug", "down", "मीटिंग", "सर्वर", "क्रैश", "एग्जाम", "इंटरव्यू", "क्लाइंट", "पेमेंट", "रिपोर्ट")
     frust_words = ("wait", "waiting", "delay", "fourth", "third", "again", "ridiculous", "nobody", "ignored", "अटका", "परेशान", "कितनी देर", "कब से", "कोई उठा", "गुस्सा", "बार-बार", "सीधे बात")
-    warm_words = ("haal", "chaal", "chai", "friend", "buddy", "wish", "best", "congrats", "family", "blessing", "नमस्ते", "आशीर्वाद", "बधाई", "दोस्त", "मस्त", "शाम", "हाल चाल", "कैसे हो")
-    fatigue_words = ("tired", "exhausted", "sleep", "sleepy", "burnout", "drained", "headache", "neend", "thak", "thakan", "थक", "नींद", "थकान", "सिर दर्द", "आँखें", "आराम")
+    warm_words = ("haal", "chaal", "chai", "friend", "buddy", "wish", "best", "congrats", "family", "blessing", "invite", "reunion", "college", "party", "wedding", "dinner", "नमस्ते", "आशीर्वाद", "बधाई", "दोस्त", "मस्त", "शाम", "हाल चाल", "कैसे हो", "शादी", "दावत")
+    fatigue_words = ("tired", "exhausted", "sleep", "sleepy", "burnout", "drained", "headache", "neend", "thak", "thakan", "akela", "alone", "थक", "नींद", "थकान", "सिर दर्द", "आँखें", "आराम", "अकेला")
     curious_words = ("how", "why", "explain", "architecture", "algorithm", "model", "learn", "setup", "कैसे", "क्यों", "समझा", "सीखना", "आर्किटेक्चर", "टेक्निकल", "बताओगे")
-    calm_words = ("parcel", "delivery", "courier", "confirm", "appointment", "service", "pickup", "meter", "पार्सल", "डिलीवरी", "अपॉइंटमेंट", "रीडिंग", "सर्विस", "कोरियर")
+    calm_words = ("delivery", "courier", "confirm", "appointment", "service", "pickup", "meter", "amazon", "flipkart", "डिलीवरी", "अपॉइंटमेंट", "रीडिंग", "सर्विस", "कोरियर")
 
     deadline_hit = min(sum(1 for w in deadline_words if w in low) / 2.0, 1.0)
     frust_hit = min(sum(1 for w in frust_words if w in low) / 2.0, 1.0)
     warm_hit = min(sum(1 for w in warm_words if w in low) / 2.0, 1.0)
     fatigue_hit = min(sum(1 for w in fatigue_words if w in low) / 2.0, 1.0)
     curious_hit = min(sum(1 for w in curious_words if w in low) / 2.0, 1.0)
-    calm_hit = min(sum(1 for w in calm_words if w in low) / 2.0, 1.0)
+    calm_hit = 0.0 if spam_hits > 0 else min(sum(1 for w in calm_words if w in low) / 2.0, 1.0)
 
     exclam = min(text.count("!") / 3.0, 1.0)
     quest = min(text.count("?") / 3.0, 1.0)
