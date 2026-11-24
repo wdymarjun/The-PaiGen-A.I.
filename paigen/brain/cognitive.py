@@ -229,6 +229,23 @@ STRICT INVARIANT: You run 100% locally on localhost. Zero cloud calls."""
             messages.append({"role": rec.role, "content": rec.content})
         messages.append({"role": "user", "content": user_input})
 
+        # Autonomous Research & Tool Engine Integration (AutoLearner)
+        research_keywords = ("search", "wiki", "look up", "find", "who was", "what is", "remember", "learn", "latest", "benchmark")
+        if any(w in user_input.lower() for w in research_keywords):
+            try:
+                from paigen.brain.autolearner import ask_paigen
+                tool_res = ask_paigen(
+                    user_input,
+                    history=messages[:-1],
+                    model=self.model_name,
+                    ollama_base_url=self.ollama_base_url
+                )
+                if tool_res and not tool_res.startswith("[Local Model Offline]"):
+                    self.db.add_message(ctx.session_id, "assistant", tool_res)
+                    return tool_res
+            except Exception as e:
+                logger.debug(f"AutoLearner routing exception ({e}), falling back to direct chat.")
+
         payload = {
             "model": self.model_name,
             "messages": messages,
@@ -280,6 +297,23 @@ STRICT INVARIANT: You run 100% locally on localhost. Zero cloud calls."""
         for rec in paired_history:
             messages.append({"role": rec.role, "content": rec.content})
         messages.append({"role": "user", "content": user_input})
+
+        # Autonomous Research & Tool Engine Integration (AutoLearner)
+        research_keywords = ("search", "wiki", "look up", "find", "who was", "what is", "remember", "learn", "latest", "benchmark")
+        if any(w in user_input.lower() for w in research_keywords):
+            try:
+                from paigen.brain.autolearner import ask_paigen
+                tool_res = ask_paigen(
+                    user_input,
+                    history=messages[:-1],
+                    model=self.model_name,
+                    ollama_base_url=self.ollama_base_url
+                )
+                if tool_res and not tool_res.startswith("[Local Model Offline]"):
+                    self.db.add_message(ctx.session_id, "assistant", tool_res)
+                    return tool_res
+            except Exception as e:
+                logger.debug(f"AutoLearner routing exception ({e}), falling back to direct chat.")
 
         payload = {
             "model": self.model_name,

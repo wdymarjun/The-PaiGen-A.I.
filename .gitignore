@@ -10,9 +10,12 @@ venv/
 env/
 data/
 *.sqlite3*
+*.sqlite*
 *.db
 output/
 models/
+paigen_memory/
+training_queue.jsonl
 
 # OS artifacts
 Thumbs.db
