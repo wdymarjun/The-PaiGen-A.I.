@@ -51,13 +51,15 @@ CLAP_MAX_GAP_S     = 0.40
 CLAP_MIN_RMS       = 0.015
 
 from paigen.senses.desktop_controller import DesktopController
+from paigen.senses.voice_engine import VoiceEngine, clean_text_for_speech
 from paigen.brain.cognitive import CognitiveBrain, TelemetryContext
 from paigen.database.sqlite_store import SQLiteWALStore
 
-# Initialize unified SQLite persistence and Cognitive Brain
+# Initialize unified SQLite persistence, Voice Engine, and Cognitive Brain
 db_store = SQLiteWALStore()
 brain = CognitiveBrain(model_name=CHAT_MODEL, ollama_base_url=OLLAMA_URL, db_store=db_store)
 telemetry = TelemetryContext(user_name="Arjun", session_id="face_gui_session")
+voice_engine = VoiceEngine.get_instance()
 
 # ─── Optional dependencies ────────────────────────────────────────────────────
 try:
@@ -282,29 +284,24 @@ def _on_desktop_action_status(msg: str):
     ui_msg_q.put(msg)
 
 def _tts_worker():
-    if not TTS_OK:
-        return
-    engine = pyttsx3.init()
-    engine.setProperty("rate", 162)
-    engine.setProperty("volume", 0.92)
-    for v in engine.getProperty("voices"):
-        if any(n in v.name.lower() for n in ("zira", "hazel", "eva")):
-            engine.setProperty("voice", v.id)
-            break
     while True:
         text = tts_q.get()
         if text is None:
             break
-        state.speaking = True
-        _set_emotion(Emotion.SPEAKING)
-        engine.say(text)
-        engine.runAndWait()
-        state.speaking = False
+
+        def on_start():
+            state.speaking = True
+            _set_emotion(Emotion.SPEAKING)
+
+        def on_end():
+            state.speaking = False
+            _set_emotion(Emotion.HAPPY)
+
+        voice_engine.speak(text, on_start=on_start, on_end=on_end)
         tts_q.task_done()
 
 def speak(text: str):
-    if TTS_OK:
-        tts_q.put(text)
+    tts_q.put(text)
     ui_msg_q.put(f"🤖 {text}")
 
 history_lock = threading.Lock()

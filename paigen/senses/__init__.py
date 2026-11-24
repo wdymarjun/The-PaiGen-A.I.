@@ -19,6 +19,7 @@ from paigen.senses.emotion_visual_searcher import (
 )
 from paigen.senses.camera import CameraUnavailableError, VisionModelError, capture_and_describe
 from paigen.senses.desktop_controller import DesktopController
+from paigen.senses.voice_engine import VoiceEngine, clean_text_for_speech
 
 __all__ = [
     "FacialActionUnit",
@@ -35,4 +36,6 @@ __all__ = [
     "VisionModelError",
     "capture_and_describe",
     "DesktopController",
+    "VoiceEngine",
+    "clean_text_for_speech",
 ]

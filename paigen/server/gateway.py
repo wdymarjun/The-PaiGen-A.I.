@@ -396,17 +396,31 @@ MOBILE_HTML = """<!DOCTYPE html>
       document.getElementById('statusCaption').innerText = "Connected to Arjun's Workstation";
     }
 
-    // Speech Synthesis (Phone speaks PaiGen's reply)
+    // Speech Synthesis (Streams High-Fidelity Voice or phone speech)
     function speakMobile(text) {
-      if (!('speechSynthesis' in window)) return;
-      window.speechSynthesis.cancel();
+      if (!text) return;
       const clean = text.replace(/[\\*#_`]/g, '');
-      const utt = new SpeechSynthesisUtterance(clean);
-      utt.rate = 1.05;
-      utt.pitch = 1.0;
-      utt.onstart = () => { speaking = true; };
-      utt.onend = () => { speaking = false; };
-      window.speechSynthesis.speak(utt);
+      const audioUrl = '/api/audio/tts?text=' + encodeURIComponent(clean);
+      const audio = new Audio(audioUrl);
+      speaking = true;
+      audio.onplay = () => { speaking = true; };
+      audio.onended = () => { speaking = false; };
+      audio.onerror = () => {
+        if ('speechSynthesis' in window) {
+          window.speechSynthesis.cancel();
+          const utt = new SpeechSynthesisUtterance(clean);
+          utt.rate = 1.05;
+          utt.pitch = 1.0;
+          utt.onstart = () => { speaking = true; };
+          utt.onend = () => { speaking = false; };
+          window.speechSynthesis.speak(utt);
+        } else {
+          speaking = false;
+        }
+      };
+      audio.play().catch(() => {
+        audio.onerror();
+      });
     }
 
     // ─── 3. Communication & Actions ──────────────────────────────────────────
@@ -600,6 +614,20 @@ async def handle_telephony_calls(request: web.Request) -> web.Response:
     return web.json_response(calls)
 
 
+async def handle_tts(request: web.Request) -> web.Response:
+    """Streams synthesized MP3 audio for mobile phone playback."""
+    text = request.query.get("text", "")
+    if not text:
+        return web.Response(status=400, text="Missing text parameter")
+    from paigen.senses.voice_engine import VoiceEngine
+    engine = VoiceEngine.get_instance()
+    loop = asyncio.get_event_loop()
+    mp3_data = await loop.run_in_executor(None, engine.synthesize_mp3_bytes, text)
+    if not mp3_data:
+        return web.Response(status=500, text="TTS synthesis unavailable")
+    return web.Response(body=mp3_data, content_type="audio/mpeg")
+
+
 def create_gateway_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", handle_root)
@@ -608,6 +636,7 @@ def create_gateway_app() -> web.Application:
     app.router.add_post("/api/action", handle_action)
     app.router.add_post("/api/telephony/webhook", handle_telephony_webhook)
     app.router.add_get("/api/telephony/calls", handle_telephony_calls)
+    app.router.add_get("/api/audio/tts", handle_tts)
     return app
 
 

@@ -1,0 +1,190 @@
+"""
+PaiGen AI: High-Fidelity Neural Voice Engine
+Architect: Arjun Singh
+
+Provides dual-tier audio speech synthesis:
+1. Primary: Natural, human-like voice (gTTS with British J.A.R.V.I.S. accent 'co.uk' and Hindi 'hi')
+   played directly from volatile RAM via pygame.mixer (zero disk residue).
+2. Fallback: 100% offline Windows SAPI5 synthesizer via pyttsx3.
+3. Mobile Streamer: Exposes volatile MP3 byte synthesis for mobile phone streaming.
+"""
+
+import io
+import logging
+import os
+import re
+import threading
+import time
+from typing import Callable, Optional
+
+logger = logging.getLogger("PaiGen.Senses.VoiceEngine")
+
+# Try importing primary & fallback libraries
+try:
+    import pygame
+    PYGAME_OK = True
+except ImportError:
+    PYGAME_OK = False
+
+try:
+    from gtts import gTTS
+    GTTS_OK = True
+except ImportError:
+    GTTS_OK = False
+
+try:
+    import pyttsx3
+    PYTTSX3_OK = True
+except ImportError:
+    PYTTSX3_OK = False
+
+
+def clean_text_for_speech(raw_text: str) -> str:
+    """
+    Strips code blocks, markdown symbols, raw URLs, and emojis so speech flows naturally.
+    """
+    if not raw_text:
+        return ""
+
+    # Remove code blocks ```...```
+    text = re.sub(r"```[\s\S]*?```", " Code omitted. ", raw_text)
+    # Remove inline code `...`
+    text = re.sub(r"`[^`]*`", "", text)
+    # Remove markdown links [text](url) -> text
+    text = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", text)
+    # Remove markdown headers and emphasis
+    text = re.sub(r"[#*_~>]+", " ", text)
+    # Remove URLs
+    text = re.sub(r"https?://\S+", "", text)
+    # Remove emoji characters (unicode surrogates/ranges)
+    text = re.sub(r"[\U00010000-\U0010ffff]", "", text)
+    # Collapse multiple spaces and newlines
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def is_devanagari(text: str) -> bool:
+    """Checks if text contains Devanagari Hindi characters."""
+    return any("\u0900" <= ch <= "\u097F" for ch in text)
+
+
+class VoiceEngine:
+    """Singleton high-fidelity speech synthesizer for PaiGen AI."""
+
+    _instance: Optional["VoiceEngine"] = None
+    _lock = threading.Lock()
+
+    def __init__(self):
+        self._is_speaking = False
+        self._mixer_initialized = False
+        self._sapi_engine = None
+
+        if PYGAME_OK:
+            try:
+                pygame.mixer.init()
+                self._mixer_initialized = True
+            except Exception as e:
+                logger.debug(f"pygame.mixer init failed: {e}")
+
+        if PYTTSX3_OK:
+            try:
+                self._sapi_engine = pyttsx3.init()
+                self._sapi_engine.setProperty("rate", 165)
+                self._sapi_engine.setProperty("volume", 0.95)
+                for v in self._sapi_engine.getProperty("voices"):
+                    if any(name in v.name.lower() for name in ("david", "george", "mark")):
+                        self._sapi_engine.setProperty("voice", v.id)
+                        break
+            except Exception as e:
+                logger.debug(f"pyttsx3 engine init failed: {e}")
+
+    @classmethod
+    def get_instance(cls) -> "VoiceEngine":
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = VoiceEngine()
+            return cls._instance
+
+    @property
+    def is_speaking(self) -> bool:
+        return self._is_speaking
+
+    def synthesize_mp3_bytes(self, text: str) -> Optional[bytes]:
+        """
+        Synthesizes speech into an in-memory MP3 byte buffer for HTTP streaming to mobile devices.
+        """
+        clean = clean_text_for_speech(text)
+        if not clean:
+            return None
+
+        if GTTS_OK:
+            try:
+                lang = "hi" if is_devanagari(clean) else "en"
+                tld = "co.in" if lang == "hi" else "co.uk"  # British J.A.R.V.I.S. accent or Indian cadence
+                tts = gTTS(text=clean, lang=lang, tld=tld)
+                fp = io.BytesIO()
+                tts.write_to_fp(fp)
+                return fp.getvalue()
+            except Exception as e:
+                logger.debug(f"gTTS byte synthesis exception: {e}")
+
+        return None
+
+    def speak(
+        self,
+        text: str,
+        on_start: Optional[Callable[[], None]] = None,
+        on_end: Optional[Callable[[], None]] = None
+    ):
+        """
+        Speaks the given text out loud through PC speakers with graceful fallback.
+        """
+        clean = clean_text_for_speech(text)
+        if not clean:
+            return
+
+        with self._lock:
+            self._is_speaking = True
+            if on_start:
+                try:
+                    on_start()
+                except Exception:
+                    pass
+
+            spoke_successfully = False
+
+            # 1. Primary: Natural Neural Audio via gTTS + in-memory pygame.mixer
+            if GTTS_OK and self._mixer_initialized:
+                try:
+                    lang = "hi" if is_devanagari(clean) else "en"
+                    tld = "co.in" if lang == "hi" else "co.uk"
+                    tts = gTTS(text=clean, lang=lang, tld=tld)
+                    fp = io.BytesIO()
+                    tts.write_to_fp(fp)
+                    fp.seek(0)
+
+                    pygame.mixer.music.load(fp)
+                    pygame.mixer.music.play()
+
+                    while pygame.mixer.music.get_busy():
+                        time.sleep(0.05)
+
+                    spoke_successfully = True
+                except Exception as e:
+                    logger.debug(f"gTTS playback failed ({e}), attempting offline fallback.")
+
+            # 2. Offline Fallback: Windows SAPI5 via pyttsx3
+            if not spoke_successfully and self._sapi_engine:
+                try:
+                    self._sapi_engine.say(clean)
+                    self._sapi_engine.runAndWait()
+                    spoke_successfully = True
+                except Exception as e:
+                    logger.debug(f"pyttsx3 playback failed: {e}")
+
+            self._is_speaking = False
+            if on_end:
+                try:
+                    on_end()
+                except Exception:
+                    pass
