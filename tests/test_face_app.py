@@ -131,12 +131,12 @@ class TestFaceApp(unittest.TestCase):
         with patch.object(DesktopController, "autonomous_whatsapp_send") as mock_send:
             # 1. User asks to send a message
             result = DesktopController.execute_command(
-                "send message to Keshav saying meeting is at 5pm"
+                "send message to Rohit saying meeting is at 5pm"
             )
-            self.assertIn("Staged message to Keshav", result)
+            self.assertIn("Staged message to Rohit", result)
             self.assertIn("confirm send", result)
             self.assertIsNotNone(DesktopController._STAGED_WHATSAPP_ACTION)
-            self.assertEqual(DesktopController._STAGED_WHATSAPP_ACTION["contact"], "Keshav")
+            self.assertEqual(DesktopController._STAGED_WHATSAPP_ACTION["contact"], "Rohit")
             self.assertTrue(len(DesktopController._STAGED_WHATSAPP_ACTION["message"]) > 0)
             mock_send.assert_not_called()
 
@@ -148,14 +148,14 @@ class TestFaceApp(unittest.TestCase):
 
             # 3. Stage again and confirm
             DesktopController.execute_command(
-                "send message to Keshav saying meeting is at 5pm"
+                "send message to Rohit saying meeting is at 5pm"
             )
             staged_msg = DesktopController._STAGED_WHATSAPP_ACTION["message"]
             confirm_result = DesktopController.execute_command("confirm send")
             self.assertIn("Confirmed", confirm_result)
             self.assertIsNone(DesktopController._STAGED_WHATSAPP_ACTION)
             mock_send.assert_called_once_with(
-                "Keshav", staged_msg, status_callback=None
+                "Rohit", staged_msg, status_callback=None
             )
 
     def test_camera_opt_in_and_toggle_switch(self):

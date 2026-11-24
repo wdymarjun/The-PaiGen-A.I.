@@ -1,6 +1,6 @@
 """
 PaiGen AI — Neon Living Face Interface
-Architect: Arjun Singh  |  Collaborator: Keshav Sharma
+Architect: Arjun Singh
 
 Aesthetic: Pure black canvas, glowing neon-cyan circle, simple dot eyes,
            hook nose, smooth curved mouth — exactly like the reference image.

@@ -1,7 +1,6 @@
 # PaiGen AI — Autonomous Living Desktop Companion
 
 **Architect:** Arjun Singh  
-**Collaborator:** Keshav Sharma (Camera Module)  
 
 PaiGen AI is a local, privacy-first living companion with an animated neon face, real-time computer vision, acoustic double-clap wake detection, cited local knowledge, and autonomous desktop control.
 
