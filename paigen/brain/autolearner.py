@@ -274,11 +274,14 @@ def ask_paigen(
     history: Optional[List[Dict[str, Any]]] = None,
     model: str = "paigen-ai",
     ollama_base_url: str = "http://127.0.0.1:11434",
-    max_turns: int = 5
+    max_turns: int = 5,
+    continuous_work_mins: int = 0,
+    consecutive_errors: int = 0,
+    perception_signals: Optional[List[str]] = None,
 ) -> str:
     """
     Executes the multi-turn autonomous tool loop:
-    1. Injects top local verified memories before generation.
+    1. Injects top local verified memories and token-budgeted human-state telemetry before generation.
     2. Calls Ollama with active tool registry.
     3. Executes requested tools and feeds outputs back into the loop.
     4. Delivers the verified verdict directly.
@@ -297,6 +300,31 @@ def ask_paigen(
             })
     except Exception as e:
         logger.debug(f"Memory pre-query exception: {e}")
+
+    # 1b. Inject token-budgeted (<150 tokens) HumanConditionEngine telemetry if not already present
+    try:
+        already_injected = any(
+            "[PAIGEN HUMAN-STATE TELEMETRY]" in str(m.get("content", ""))
+            for m in history
+            if m.get("role") == "system"
+        )
+        if not already_injected:
+            from paigen.brain.knowledge.human_condition import (
+                CognitiveStateInput,
+                HumanConditionRegistry,
+            )
+            state_block = HumanConditionRegistry.compile_system_injection(
+                CognitiveStateInput(
+                    user_text=user_prompt,
+                    hour_of_day=datetime.datetime.now().hour,
+                    continuous_work_mins=continuous_work_mins,
+                    consecutive_errors=consecutive_errors,
+                    perception_signals=list(perception_signals or []),
+                )
+            )
+            history.append({"role": "system", "content": state_block})
+    except Exception as e:
+        logger.debug(f"HumanCondition injection skipped: {e}")
 
     history.append({"role": "user", "content": user_prompt})
 

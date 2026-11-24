@@ -5,6 +5,13 @@ Architect: Arjun Singh
 
 import unittest
 
+from paigen.brain.knowledge.human_condition import (
+    CognitiveStateInput,
+    HumanConditionEngine,
+    HumanConditionRegistry,
+    InterventionUrgency,
+    PersonaMode,
+)
 from paigen.brain.psychology import PsychologicalEngine
 from paigen.brain.psychology_ml import PsychologyMLClassifier
 
@@ -42,6 +49,33 @@ class TestPsychologyML(unittest.TestCase):
         self.assertEqual(prof.recommended_response_language, "hi")
         self.assertIn(prof.triage_tier, ("TIER_1_EMERGENCY", "TIER_2_HIGH_PRIORITY"))
         self.assertIn("PSYCHOLOGICAL ENGINE TELEMETRY", prof.prompt_directive)
+
+    def test_human_condition_engine_v2_diagnosis_and_injection(self):
+        engine = HumanConditionEngine()
+        self.assertEqual(len(engine.get_all()), 10)
+        self.assertEqual(len(HumanConditionRegistry.get_all()), 10)
+
+        snap = CognitiveStateInput(
+            user_text="Yaar 2 am ho gaya hai aur ye bug nothing works, dimag kharab ho raha hai",
+            hour_of_day=2,
+            continuous_work_mins=135,
+            consecutive_errors=4,
+            perception_signals=["eye_strain", "slouched_posture"],
+        )
+        diag = engine.diagnose_state(snap, top_k=2)
+        self.assertEqual(diag.highest_urgency, InterventionUrgency.CRITICAL)
+        self.assertIn(diag.dominant_mode, (PersonaMode.BIOLOGICAL_GUARDIAN, PersonaMode.CRISIS_STABILIZER))
+        self.assertEqual(len(diag.active_models), 2)
+
+        injection = engine.compile_system_injection(snap)
+        self.assertIn("[PAIGEN HUMAN-STATE TELEMETRY]", injection)
+        self.assertLess(len(injection.split()), 120)
+
+    def test_human_condition_calm_tactical_fallback(self):
+        engine = HumanConditionEngine()
+        diag = engine.diagnose_state(CognitiveStateInput(user_text="Show current status.", hour_of_day=11))
+        self.assertEqual(diag.dominant_mode, PersonaMode.TACTICAL_ADVISOR)
+        self.assertEqual(diag.highest_urgency, InterventionUrgency.PASSIVE)
 
 
 if __name__ == "__main__":

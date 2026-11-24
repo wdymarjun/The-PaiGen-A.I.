@@ -141,23 +141,28 @@ class CurriculumDatasetGenerator:
                 "metadata": {"tags": ev.tags, "event_id": ev.event_id}
             })
 
-        # Human Condition Mental Models
+        # Human Condition Neuro-Philosophical Mental Models
         for model in HumanConditionRegistry.get_all():
+            calib_en = model.example_calibration.get("en", "")
+            calib_hi = model.example_calibration.get("hinglish", "")
             records.append({
                 "stage": 3,
                 "category": "human_condition_epistemology",
                 "instruction": (
-                    f"Explain the human psychological model '{model.name}', its biological vulnerability, "
-                    f"and how PaiGen AI supports the human user."
+                    f"Explain the neuro-philosophical model '{model.name}' ({model.domain.value}), its biological vulnerability, "
+                    f"and how PaiGen AI responds in mode {model.recommended_mode.value}."
                 ),
                 "input": f"Mental Model: {model.name}",
                 "output": (
                     f"Model: {model.name}\n"
+                    f"Anchors: {', '.join(model.anchors)}\n"
                     f"Core Insight: {model.core_insight}\n"
                     f"Human Vulnerability: {model.human_vulnerability}\n"
-                    f"Companion Guidance: {model.companion_guidance}"
+                    f"Companion Guidance: {model.jarvis_directive}\n"
+                    f"English Calibration: {calib_en}\n"
+                    f"Hinglish Calibration: {calib_hi}"
                 ),
-                "metadata": {"tags": model.tags, "model_id": model.model_id}
+                "metadata": {"tags": model.tags, "model_id": model.model_id, "mode": model.recommended_mode.value}
             })
 
         return records

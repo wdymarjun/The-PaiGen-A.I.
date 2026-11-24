@@ -12,12 +12,18 @@ Features:
 
 import json
 import logging
+import time
+from datetime import datetime
 from typing import AsyncGenerator, Dict, Generator, List, Optional, Union
 import urllib.request
 import urllib.error
 from pydantic import BaseModel, Field
 
 from paigen.brain.knowledge.historical_advisor import HistoricalAdvisor
+from paigen.brain.knowledge.human_condition import (
+    CognitiveStateInput,
+    HumanConditionRegistry,
+)
 from paigen.brain.knowledge.retriever import LocalKnowledgeRetriever
 from paigen.brain.interactive_attunement import HumanNatureAttuner
 from paigen.database.sqlite_store import SQLiteWALStore
@@ -36,6 +42,9 @@ class TelemetryContext(BaseModel):
     primary_language: str = "bilingual"  # "en", "hi", "hinglish", "bilingual"
     telemetry_confidence: float = Field(default=0.60, ge=0.0, le=1.0)
     is_user_override: bool = False
+    continuous_work_mins: Optional[int] = None
+    consecutive_errors: int = 0
+    perception_signals: List[str] = Field(default_factory=list)
 
 
 class CognitiveBrain:
@@ -52,6 +61,7 @@ class CognitiveBrain:
         self.ollama_base_url = ollama_base_url
         self.db = db_store or SQLiteWALStore()
         self.retriever = retriever or LocalKnowledgeRetriever()
+        self._session_started_ts = time.time()
 
     def apply_active_user_overrides(self, ctx: TelemetryContext):
         """
@@ -216,6 +226,28 @@ STRICT INVARIANT: You run 100% locally on localhost. Zero cloud calls."""
 
         return prompt
 
+    def _compile_human_state_block(self, user_input: str, ctx: TelemetryContext) -> str:
+        """Builds a compact (<150 tokens) Neuro-Philosophical telemetry block for Ollama."""
+        elapsed_mins = (
+            ctx.continuous_work_mins
+            if ctx.continuous_work_mins is not None
+            else int((time.time() - self._session_started_ts) / 60)
+        )
+        signals = list(ctx.perception_signals)
+        if ctx.inferred_fatigue > 0.65 and "eye_strain" not in signals:
+            signals.append("eye_strain")
+        if ctx.is_deep_focus and "sustained_deep_focus" not in signals:
+            signals.append("sustained_deep_focus")
+
+        snapshot = CognitiveStateInput(
+            user_text=user_input,
+            hour_of_day=datetime.now().hour,
+            continuous_work_mins=max(0, elapsed_mins),
+            consecutive_errors=max(0, ctx.consecutive_errors),
+            perception_signals=signals,
+        )
+        return HumanConditionRegistry.compile_system_injection(snapshot)
+
     def query(
         self,
         user_input: str,
@@ -234,10 +266,12 @@ STRICT INVARIANT: You run 100% locally on localhost. Zero cloud calls."""
         self.db.add_message(ctx.session_id, "user", user_input)
 
         system_prompt = self.build_dynamic_system_prompt(ctx, user_query=user_input)
+        state_block = self._compile_human_state_block(user_input, ctx)
 
         messages = [{"role": "system", "content": system_prompt}]
         for rec in paired_history:
             messages.append({"role": rec.role, "content": rec.content})
+        messages.append({"role": "system", "content": state_block})
         messages.append({"role": "user", "content": user_input})
 
         # Autonomous Research & Tool Engine Integration (AutoLearner)
@@ -303,10 +337,12 @@ STRICT INVARIANT: You run 100% locally on localhost. Zero cloud calls."""
         self.db.add_message(ctx.session_id, "user", user_input)
 
         system_prompt = self.build_dynamic_system_prompt(ctx, user_query=user_input)
+        state_block = self._compile_human_state_block(user_input, ctx)
 
         messages = [{"role": "system", "content": system_prompt}]
         for rec in paired_history:
             messages.append({"role": rec.role, "content": rec.content})
+        messages.append({"role": "system", "content": state_block})
         messages.append({"role": "user", "content": user_input})
 
         # Autonomous Research & Tool Engine Integration (AutoLearner)

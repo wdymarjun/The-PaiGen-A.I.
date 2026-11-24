@@ -9,10 +9,15 @@ Combines:
 4. LLM Psychological Context Injection & Strategy Synthesis
 """
 
-from typing import Any, Dict, Optional
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from paigen.brain.interactive_attunement import HumanNatureAttuner
+from paigen.brain.knowledge.human_condition import (
+    CognitiveStateInput,
+    HumanConditionRegistry,
+)
 from paigen.brain.psychology_ml import PsychologyMLClassifier
 
 
@@ -28,6 +33,9 @@ class PsychologicalProfile(BaseModel):
     trust_openness: float = Field(ge=0.0, le=1.0)
     manipulation_risk: float = Field(ge=0.0, le=1.0)
     cognitive_load: float = Field(ge=0.0, le=1.0)
+    neuro_mode: str = "TACTICAL_ADVISOR"
+    neuro_urgency: str = "PASSIVE"
+    active_mental_models: List[str] = Field(default_factory=list)
     recommended_strategy: str
     behavioral_insight: str
     prompt_directive: str
@@ -102,6 +110,13 @@ class PsychologicalEngine:
             resp_lang = "en"
 
         circadian = HumanNatureAttuner.get_current_circadian_phase()
+        diagnosis = HumanConditionRegistry.diagnose_state(
+            CognitiveStateInput(
+                user_text=text or "",
+                hour_of_day=datetime.now().hour,
+            )
+        )
+        active_model_names = [m.name for m in diagnosis.active_models]
 
         lang_instruction = (
             "Respond predominantly in natural, polite, crisp Hindi (Devanagari script, minimal English loanwords only where natural) because the speaker is communicating in Hindi/Hinglish."
@@ -109,11 +124,17 @@ class PsychologicalEngine:
             else "Respond in crisp, articulate British-poised English."
         )
 
+        neuro_line = (
+            f"- Neuro-Philosophical Mode: {diagnosis.dominant_mode.value} ({diagnosis.highest_urgency.name}) | "
+            f"Models: {', '.join(active_model_names) if active_model_names else 'Baseline Tactical'}\n"
+        )
+
         directive = (
             f"[PSYCHOLOGICAL ENGINE TELEMETRY - Speaker: {speaker_role.upper()}]\n"
             f"- ML State: {state} ({pred['state_confidence']:.0%} conf) | Triage: {pred['triage_tier']}\n"
             f"- Affect: Valence={pred['valence']:+.2f}, Arousal={pred['arousal']:.2f}, "
             f"Trust={pred['trust_openness']:.2f}, ManipulationRisk={pred['manipulation_risk']:.2f}, CogLoad={pred['cognitive_load']:.2f}\n"
+            f"{neuro_line}"
             f"- Strategy: {meta['strategy']} -> {meta['insight']}\n"
             f"- Circadian Context: {circadian.phase_name}\n"
             f"- Language Rule: {lang_instruction}"
@@ -131,6 +152,9 @@ class PsychologicalEngine:
             trust_openness=pred["trust_openness"],
             manipulation_risk=pred["manipulation_risk"],
             cognitive_load=pred["cognitive_load"],
+            neuro_mode=diagnosis.dominant_mode.value,
+            neuro_urgency=diagnosis.highest_urgency.name,
+            active_mental_models=active_model_names,
             recommended_strategy=meta["strategy"],
             behavioral_insight=meta["insight"],
             prompt_directive=directive,
