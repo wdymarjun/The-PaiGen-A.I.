@@ -176,6 +176,23 @@
         <button class="btn btn-emerald" onclick="endAndSaveCall()">💾 End Call & Store Recording</button>
       </div>
 
+      <!-- 100% Auto-Busy Mode Toggle Card -->
+      <div class="card" id="busyModeCard" style="border-color:rgba(245,158,11,0.4);">
+        <div class="card-hdr" style="margin-bottom:6px;">
+          <span class="card-title" style="color:var(--amber);">🔥 100% Auto-Busy Mode</span>
+          <button class="btn btn-sm btn-ghost" id="btnBusyToggle" onclick="toggleBusyMode()">OFF</button>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:11px;color:var(--muted);">
+          <span id="busyModeDesc">Auto-answers & talks in Hindi if unanswered or declined.</span>
+          <select id="cfgBusyTimeout" onchange="saveBusySettings()" style="background:var(--surface-2);color:#fff;border:1px solid var(--border);border-radius:8px;padding:4px 8px;font-size:11px;">
+            <option value="0">Instant (0s)</option>
+            <option value="5">After 5s</option>
+            <option value="8" selected>After 8s</option>
+            <option value="12">After 12s</option>
+          </select>
+        </div>
+      </div>
+
       <!-- Quick Call Guardian Controls -->
       <div class="card">
         <div class="card-hdr">
@@ -305,6 +322,18 @@
       </div>
 
       <div class="card">
+        <div class="card-hdr"><span class="card-title">Twilio / Exotel Busy Forwarding (*67*)</span></div>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <div style="font-size:11px;color:var(--muted);">Forward unanswered/declined calls directly to PaiGen's crystal-clear Hindi TwiML line (<code style="color:var(--cyan);">/api/telephony/twiml_turn</code>):</div>
+          <input id="cfgForwardNum" class="txt-input" placeholder="Virtual Number e.g. +91XXXXXXXXXX" onchange="saveBusySettings()">
+          <div class="grid-2">
+            <button class="btn btn-cyan btn-sm" onclick="enableBusyForward()">Activate *67* Forward</button>
+            <button class="btn btn-ghost btn-sm" onclick="disableBusyForward()">Disable ##67#</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
         <div class="card-hdr"><span class="card-title">Vivo V29 / Android Permissions</span></div>
         <div id="permStatus" style="font-size:12px;color:var(--muted);margin-bottom:10px;">Checking permissions...</div>
         <div class="grid-2">
@@ -331,6 +360,9 @@
     let SERVER_URL = 'http://192.168.11.146:8765';
     let AUTO_ASK = true;
     let PREF_LANG = 'auto';
+    let BUSY_MODE = false;
+    let BUSY_TIMEOUT = 8;
+    let FORWARD_NUM = '';
     let isSpeaking = false;
     let isListening = false;
     let listenMode = 'main'; // 'main' or 'caller'
@@ -433,6 +465,9 @@
           if (cfg.server_url) SERVER_URL = cfg.server_url;
           AUTO_ASK = cfg.auto_ask_calls !== false;
           PREF_LANG = cfg.preferred_lang || 'auto';
+          BUSY_MODE = !!cfg.busy_mode;
+          BUSY_TIMEOUT = typeof cfg.busy_timeout_sec === 'number' ? cfg.busy_timeout_sec : 8;
+          FORWARD_NUM = cfg.forward_number || '';
         } catch (e) {}
       } else {
         SERVER_URL = window.location.origin;
@@ -440,6 +475,54 @@
       document.getElementById('cfgServerUrl').value = SERVER_URL;
       document.getElementById('cfgAutoAsk').checked = AUTO_ASK;
       document.getElementById('cfgPrefLang').value = PREF_LANG;
+      document.getElementById('cfgBusyTimeout').value = String(BUSY_TIMEOUT);
+      document.getElementById('cfgForwardNum').value = FORWARD_NUM;
+      renderBusyUi();
+    }
+
+    function renderBusyUi() {
+      const btn = document.getElementById('btnBusyToggle');
+      const card = document.getElementById('busyModeCard');
+      const desc = document.getElementById('busyModeDesc');
+      if (BUSY_MODE) {
+        btn.innerText = 'ON • ARMED';
+        btn.className = 'btn btn-sm btn-rose';
+        card.style.borderColor = 'var(--rose)';
+        desc.innerText = `ARMED: PaiGen auto-takes calls in ${BUSY_TIMEOUT}s or on decline.`;
+      } else {
+        btn.innerText = 'OFF';
+        btn.className = 'btn btn-sm btn-ghost';
+        card.style.borderColor = 'rgba(245,158,11,0.4)';
+        desc.innerText = 'Auto-answers & talks in Hindi if unanswered or declined.';
+      }
+    }
+
+    function toggleBusyMode() {
+      BUSY_MODE = !BUSY_MODE;
+      saveBusySettings();
+      renderBusyUi();
+    }
+
+    function saveBusySettings() {
+      BUSY_TIMEOUT = parseInt(document.getElementById('cfgBusyTimeout').value || '8', 10);
+      FORWARD_NUM = document.getElementById('cfgForwardNum').value.trim();
+      if (hasNative && PaiGenNative.saveBusyConfig) {
+        PaiGenNative.saveBusyConfig(BUSY_MODE, BUSY_TIMEOUT, FORWARD_NUM);
+      }
+    }
+
+    function enableBusyForward() {
+      saveBusySettings();
+      if (!FORWARD_NUM) { alert('Enter your Twilio/Exotel virtual number first.'); return; }
+      const code = `*67*${FORWARD_NUM}#`;
+      if (hasNative && PaiGenNative.dialCallForwardCode) PaiGenNative.dialCallForwardCode(code);
+      else alert('Dial on phone: ' + code);
+    }
+
+    function disableBusyForward() {
+      const code = '##67#';
+      if (hasNative && PaiGenNative.dialCallForwardCode) PaiGenNative.dialCallForwardCode(code);
+      else alert('Dial on phone: ' + code);
     }
 
     function saveSettings() {

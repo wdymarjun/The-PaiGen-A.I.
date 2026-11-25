@@ -714,6 +714,67 @@ async def handle_telephony_session_start(request: web.Request) -> web.Response:
         return web.json_response({"status": "error", "message": str(e)}, status=500)
 
 
+async def handle_telephony_twiml_turn(request: web.Request) -> web.Response:
+    """
+    Live multi-turn TwiML / Exotel voice bridge endpoint (`/api/telephony/twiml_turn`).
+    Plays PaiGen's v5.0 Hindi/English neural voice via `<Play>/api/audio/tts` and gathers
+    caller speech in real time via `<Gather input="speech">`.
+    """
+    try:
+        q = request.query
+        call_id_str = q.get("call_id", "").strip()
+        call_id = int(call_id_str) if call_id_str.isdigit() else None
+        provider = q.get("provider", "twilio")
+
+        caller_id = q.get("From") or q.get("CallFrom") or "Unknown"
+        caller_name = q.get("CallerName") or q.get("caller_name") or "Incoming Caller"
+        caller_speech = q.get("SpeechResult") or q.get("TranscriptionText") or q.get("Digits") or ""
+
+        if request.method == "POST":
+            ctype = request.content_type or ""
+            if "json" in ctype:
+                data = await request.json()
+                caller_id = data.get("From") or data.get("CallFrom") or data.get("caller_id") or caller_id
+                caller_name = data.get("CallerName") or data.get("caller_name") or caller_name
+                caller_speech = data.get("SpeechResult") or data.get("caller_speech") or caller_speech
+                if data.get("call_id") is not None:
+                    call_id = int(data["call_id"])
+            else:
+                form = await request.post()
+                caller_id = form.get("From") or form.get("CallFrom") or caller_id
+                caller_name = form.get("CallerName") or caller_name
+                caller_speech = (
+                    form.get("SpeechResult")
+                    or form.get("TranscriptionText")
+                    or form.get("Digits")
+                    or caller_speech
+                )
+
+        proto = request.headers.get("X-Forwarded-Proto", request.scheme or "http")
+        host = request.headers.get("X-Forwarded-Host") or request.host or f"{get_local_ip()}:8765"
+        public_base = f"{proto}://{host}"
+
+        loop = asyncio.get_event_loop()
+        turn = await loop.run_in_executor(
+            None,
+            telephony.generate_twiml_turn,
+            public_base,
+            caller_id,
+            caller_name,
+            caller_speech,
+            call_id,
+            provider,
+        )
+
+        event_name = "urgent_call_escalation" if turn.get("should_escalate") else "twiml_call_turn"
+        await broadcast_ws_event(event_name, {k: v for k, v in turn.items() if k != "xml"})
+        return web.Response(text=turn["xml"], content_type="text/xml")
+    except Exception as e:
+        logger.error(f"TwiML turn error: {e}")
+        err_xml = '<?xml version="1.0" encoding="UTF-8"?><Response><Say>Temporary system error.</Say><Hangup/></Response>'
+        return web.Response(text=err_xml, content_type="text/xml", status=200)
+
+
 async def handle_telephony_converse(request: web.Request) -> web.Response:
     """Handles live multi-turn Hindi/English conversation with an incoming caller."""
     try:
@@ -880,6 +941,8 @@ def create_gateway_app() -> web.Application:
     app.router.add_get("/api/telephony/calls", handle_telephony_calls)
     app.router.add_post("/api/telephony/session/start", handle_telephony_session_start)
     app.router.add_post("/api/telephony/converse", handle_telephony_converse)
+    app.router.add_get("/api/telephony/twiml_turn", handle_telephony_twiml_turn)
+    app.router.add_post("/api/telephony/twiml_turn", handle_telephony_twiml_turn)
     app.router.add_post("/api/telephony/recording", handle_telephony_recording_upload)
     app.router.add_get("/api/telephony/recordings/{filename}", handle_telephony_recording_get)
     app.router.add_get("/api/audio/tts", handle_tts)

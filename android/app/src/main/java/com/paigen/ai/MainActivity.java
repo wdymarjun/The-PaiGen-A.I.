@@ -226,6 +226,9 @@ public class MainActivity extends Activity {
                 o.put("server_url", prefs.getString("server_url", "http://192.168.11.146:8765"));
                 o.put("auto_ask_calls", prefs.getBoolean("auto_ask_calls", true));
                 o.put("preferred_lang", prefs.getString("preferred_lang", "auto"));
+                o.put("busy_mode", prefs.getBoolean("busy_mode", false));
+                o.put("busy_timeout_sec", prefs.getInt("busy_timeout_sec", 8));
+                o.put("forward_number", prefs.getString("forward_number", ""));
                 return o.toString();
             } catch (Exception e) {
                 return "{}";
@@ -240,6 +243,23 @@ public class MainActivity extends Activity {
                 .putBoolean("auto_ask_calls", autoAskCalls)
                 .putString("preferred_lang", preferredLang)
                 .apply();
+        }
+
+        @JavascriptInterface
+        public void saveBusyConfig(boolean busyMode, int timeoutSec, String forwardNumber) {
+            SharedPreferences prefs = getSharedPreferences("paigen_prefs", MODE_PRIVATE);
+            prefs.edit()
+                .putBoolean("busy_mode", busyMode)
+                .putInt("busy_timeout_sec", timeoutSec)
+                .putString("forward_number", forwardNumber == null ? "" : forwardNumber.trim())
+                .apply();
+        }
+
+        @JavascriptInterface
+        public void dialCallForwardCode(String ussdCode) {
+            if (ussdCode == null || ussdCode.trim().isEmpty()) return;
+            Intent i = new Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + Uri.encode(ussdCode.trim())));
+            startActivity(i);
         }
 
         @JavascriptInterface

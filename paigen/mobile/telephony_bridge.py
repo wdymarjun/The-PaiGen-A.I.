@@ -20,9 +20,11 @@ import os
 import re
 import sqlite3
 import time
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from xml.sax.saxutils import escape as xml_escape
 
 from paigen.brain.psychology import PsychologicalEngine
 
@@ -481,8 +483,12 @@ class TelephonyBridge:
 
         # Deterministic, zero-TTS-bleed offline Hindi & English fallback
         state = psych.psych_state
-        vague_triggers = ("phone do", "baat karni thi", "baat karao", "put arjun", "let me talk to arjun")
-        is_vague = len(caller_speech.split()) <= 10 and any(v in low for v in vague_triggers) and state == "CALM_NEUTRAL"
+        vague_triggers = ("phone do", "baat karni", "baat karao", "put arjun", "let me talk to arjun", "speak to arjun", "ghar par hai")
+        is_vague = (
+            len(caller_speech.split()) <= 12
+            and any(v in low for v in vague_triggers)
+            and state not in ("URGENT_PANIC", "STRESSED_ANXIOUS", "DECEPTIVE_PUSHY")
+        )
 
         if is_vague:
             spoken = (
@@ -664,6 +670,129 @@ class TelephonyBridge:
                     item["audio_url"] = ""
                 results.append(item)
             return results
+
+    def generate_twiml_turn(
+        self,
+        public_base_url: str,
+        caller_id: str = "Unknown",
+        caller_name: str = "Incoming Caller",
+        caller_speech: str = "",
+        call_id: Optional[int] = None,
+        provider: str = "twilio",
+        preferred_lang: str = "hi",
+    ) -> Dict[str, Any]:
+        """
+        Generates live multi-turn TwiML XML (compatible with Twilio & Exotel) powered by
+        PaiGen's v5.0 Hindi voice engine (`/api/audio/tts`) and `<Gather input="speech">`.
+        Returns {"xml": ..., "call_id": ..., "action": ..., "tier": ..., "should_escalate": ..., "spoken_text": ...}.
+        """
+        base = public_base_url.rstrip("/")
+        escalate_number = os.getenv("PAIGEN_ESCALATE_NUMBER", "").strip()
+
+        # Turn 0: First ring connection -> open session & gather caller's speech in Hindi-first mode
+        if not (caller_speech or "").strip():
+            sess = self.start_call_session(
+                caller_id=caller_id,
+                caller_name=caller_name,
+                preferred_lang=preferred_lang,
+            )
+            cid = sess["call_id"]
+            spoken = sess["opening_speech"]
+            tts_url = xml_escape(f"{base}/api/audio/tts?text={urllib.parse.quote(spoken)}")
+            action_url = xml_escape(
+                f"{base}/api/telephony/twiml_turn?call_id={cid}&provider={urllib.parse.quote(provider)}"
+            )
+            fallback_bye = xml_escape(
+                f"{base}/api/audio/tts?text={urllib.parse.quote('कोई आवाज़ नहीं मिली। धन्यवाद, नमस्ते।')}"
+            )
+            xml = (
+                '<?xml version="1.0" encoding="UTF-8"?>\n'
+                "<Response>\n"
+                f'    <Gather input="speech dtmf" language="hi-IN" speechTimeout="auto" timeout="7" '
+                f'hints="emergency,hospital,urgent,Arjun,OTP,KYC,बैंक,अस्पताल,अर्जुन" '
+                f'action="{action_url}" method="POST">\n'
+                f"        <Play>{tts_url}</Play>\n"
+                "    </Gather>\n"
+                f"    <Play>{fallback_bye}</Play>\n"
+                "    <Hangup/>\n"
+                "</Response>"
+            )
+            return {
+                "xml": xml,
+                "call_id": cid,
+                "action": "EXTRACT",
+                "tier": 3,
+                "should_escalate": False,
+                "spoken_text": spoken,
+            }
+
+        # Follow-up Turn: Evaluate caller speech through v5.0 [CHANNEL: CALL] sandbox
+        res = self.converse_on_call(
+            caller_speech=caller_speech,
+            call_id=call_id,
+            caller_id=caller_id,
+            caller_name=caller_name,
+            preferred_lang="auto",
+            include_audio=False,
+        )
+        cid = res["call_id"]
+        spoken = res["reply_text"]
+        call_action = res.get("call_action", "LOG_CALLBACK")
+        tier = int(res.get("tier", 3))
+        should_escalate = bool(res.get("should_escalate", False))
+
+        tts_url = xml_escape(f"{base}/api/audio/tts?text={urllib.parse.quote(spoken)}")
+        action_url = xml_escape(
+            f"{base}/api/telephony/twiml_turn?call_id={cid}&provider={urllib.parse.quote(provider)}"
+        )
+
+        if call_action == "TERMINATE" or tier == 4:
+            xml = (
+                '<?xml version="1.0" encoding="UTF-8"?>\n'
+                "<Response>\n"
+                f"    <Play>{tts_url}</Play>\n"
+                "    <Hangup/>\n"
+                "</Response>"
+            )
+        elif call_action == "ESCALATE" or tier in (1, 2):
+            dial_block = f"    <Dial>{xml_escape(escalate_number)}</Dial>\n" if escalate_number else ""
+            xml = (
+                '<?xml version="1.0" encoding="UTF-8"?>\n'
+                "<Response>\n"
+                f"    <Play>{tts_url}</Play>\n"
+                f"{dial_block}"
+                "    <Hangup/>\n"
+                "</Response>"
+            )
+        elif call_action == "EXTRACT":
+            # Keep multi-turn voice loop open for the caller to state their name & purpose
+            xml = (
+                '<?xml version="1.0" encoding="UTF-8"?>\n'
+                "<Response>\n"
+                f'    <Gather input="speech dtmf" language="hi-IN" speechTimeout="auto" timeout="6" '
+                f'action="{action_url}" method="POST">\n'
+                f"        <Play>{tts_url}</Play>\n"
+                "    </Gather>\n"
+                "    <Hangup/>\n"
+                "</Response>"
+            )
+        else:
+            xml = (
+                '<?xml version="1.0" encoding="UTF-8"?>\n'
+                "<Response>\n"
+                f"    <Play>{tts_url}</Play>\n"
+                "    <Hangup/>\n"
+                "</Response>"
+            )
+
+        return {
+            "xml": xml,
+            "call_id": cid,
+            "action": call_action,
+            "tier": tier,
+            "should_escalate": should_escalate,
+            "spoken_text": spoken,
+        }
 
     def generate_twiml(self, caller_speech: Optional[str] = None) -> str:
         """

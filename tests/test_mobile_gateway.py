@@ -249,6 +249,43 @@ class TestGatewayEndpoints(AioHTTPTestCase):
         self.assertEqual(dl_resp.status, 200)
         self.assertEqual(await dl_resp.read(), fake_m4a)
 
+    @unittest_run_loop
+    async def test_twiml_turn_multiturn_hindi_voice_and_scam_hangup(self):
+        # Turn 0: initial connection (no SpeechResult) -> opens Gather loop with /api/audio/tts <Play>
+        resp0 = await self.client.request(
+            "POST",
+            "/api/telephony/twiml_turn",
+            data={"From": "+919811112222", "CallSid": "CA12345"},
+        )
+        self.assertEqual(resp0.status, 200)
+        self.assertIn("text/xml", resp0.headers.get("Content-Type", ""))
+        xml0 = await resp0.text()
+        self.assertIn("<Gather", xml0)
+        self.assertIn('language="hi-IN"', xml0)
+        self.assertIn("/api/audio/tts?text=", xml0)
+
+        # Follow-up Turn: Vague caller -> keeps Gather loop open
+        resp1 = await self.client.request(
+            "POST",
+            "/api/telephony/twiml_turn?call_id=1",
+            data={"From": "+919811112222", "SpeechResult": "Arjun se baat karni thi, phone do unko"},
+        )
+        self.assertEqual(resp1.status, 200)
+        xml1 = await resp1.text()
+        self.assertIn("<Gather", xml1)
+        self.assertIn("<Play>", xml1)
+
+        # Follow-up Turn: Scam/OTP -> terminates with Hangup and no Gather
+        resp2 = await self.client.request(
+            "POST",
+            "/api/telephony/twiml_turn?call_id=1",
+            data={"From": "+919811112222", "SpeechResult": "Sir bank KYC update ke liye OTP batao"},
+        )
+        self.assertEqual(resp2.status, 200)
+        xml2 = await resp2.text()
+        self.assertIn("<Hangup/>", xml2)
+        self.assertNotIn("<Gather", xml2)
+
 
 if __name__ == "__main__":
     unittest.main()
