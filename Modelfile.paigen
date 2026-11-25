@@ -1,10 +1,10 @@
 # ==============================================================================
-# PaiGen AI — Custom Ollama Modelfile (v5.0: Multimodal & Sandboxed Call Kernel)
+# PaiGen AI — Custom Ollama Modelfile (v5.1: 7B Reasoning + Sandboxed Call Kernel)
 # Architect: Arjun Singh
-# Base Model: qwen2.5vl:3b (Vision + Language) | Alt: qwen3:4b (Text-only)
+# Base Model: qwen2.5:7b (Text/Reasoning/Hinglish) | Vision: qwen2.5vl:3b
 # ==============================================================================
 
-FROM qwen2.5vl:3b
+FROM qwen2.5:7b
 
 # --- Precision Tuning for 3B Bilingual (Devanagari + English) & Low-Latency Streaming ---
 # 4096 keeps KV-cache fast for real-time voice+typing sync while preserving multimodal headroom.
