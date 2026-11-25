@@ -91,19 +91,23 @@ DEFAULT_CORPUS_PATH = (
 
 
 def _tokenize_trilingual(text: str) -> List[str]:
-    """Extracts word unigrams, word bigrams, and character n-grams preserving Devanagari."""
+    """Extracts word unigrams, word bigrams, and character 3/4-grams preserving Devanagari."""
     cleaned = re.sub(r"[^\w\s\u0900-\u097F!?]", " ", text.lower())
     words = [w for w in cleaned.split() if w]
     tokens: List[str] = list(words)
     # Word bigrams
     for i in range(len(words) - 1):
         tokens.append(f"{words[i]}_{words[i+1]}")
-    # Compact char 3-grams for morphological/Hindi stem generalization
+    # Compact char 3-grams & 4-grams for morphological/Hindi stem generalization
     compact = " ".join(words)
     for i in range(max(0, len(compact) - 2)):
-        gram = compact[i : i + 3]
-        if " " not in gram:
-            tokens.append(f"c3:{gram}")
+        gram3 = compact[i : i + 3]
+        if " " not in gram3:
+            tokens.append(f"c3:{gram3}")
+        if i <= len(compact) - 4:
+            gram4 = compact[i : i + 4]
+            if " " not in gram4:
+                tokens.append(f"c4:{gram4}")
     return tokens
 
 
@@ -246,7 +250,7 @@ class PsychologyMLClassifier:
     Trains tightly with L2 regularization, cosine decay, and stratified validation.
     """
 
-    def __init__(self, max_vocab: int = 1600):
+    def __init__(self, max_vocab: int = 3200):
         self.max_vocab = max_vocab
         self.vocab: Dict[str, int] = {}
         self.idf: Optional[np.ndarray] = None
@@ -285,11 +289,10 @@ class PsychologyMLClassifier:
 
         for i, text in enumerate(texts):
             counts = Counter(_tokenize_trilingual(text))
-            total = max(sum(counts.values()), 1)
             for tok, cnt in counts.items():
                 if tok in self.vocab:
                     j = self.vocab[tok]
-                    tfidf[i, j] = (cnt / total) * self.idf[j]
+                    tfidf[i, j] = (1.0 + math.log(cnt)) * self.idf[j]
             norm = np.linalg.norm(tfidf[i])
             if norm > 1e-8:
                 tfidf[i] /= norm
@@ -407,10 +410,10 @@ class PsychologyMLClassifier:
         Y_af_va = np.array([r["affect_vector"] for r in val_rows], dtype=np.float32)
 
         # Train validation split models to measure honest generalization
-        W_st, b_st = self._train_softmax_head(X_tr, y_st_tr, len(PSYCH_STATES), epochs=260, lr=0.28, l2=1.8e-3)
-        W_ti, b_ti = self._train_softmax_head(X_tr, y_ti_tr, len(TRIAGE_TIERS), epochs=260, lr=0.28, l2=1.8e-3)
-        W_la, b_la = self._train_softmax_head(X_tr, y_la_tr, len(LANG_CLASSES), epochs=220, lr=0.25, l2=1.5e-3)
-        W_af, b_af = self._train_ridge_head(X_tr, Y_af_tr, alpha=1.2)
+        W_st, b_st = self._train_softmax_head(X_tr, y_st_tr, len(PSYCH_STATES), epochs=320, lr=0.25, l2=1.2e-3)
+        W_ti, b_ti = self._train_softmax_head(X_tr, y_ti_tr, len(TRIAGE_TIERS), epochs=320, lr=0.25, l2=1.2e-3)
+        W_la, b_la = self._train_softmax_head(X_tr, y_la_tr, len(LANG_CLASSES), epochs=260, lr=0.25, l2=1.2e-3)
+        W_af, b_af = self._train_ridge_head(X_tr, Y_af_tr, alpha=0.8)
 
         st_acc_val = float(np.mean(np.argmax(X_va @ W_st + b_st, axis=1) == y_st_va))
         ti_acc_val = float(np.mean(np.argmax(X_va @ W_ti + b_ti, axis=1) == y_ti_va))
@@ -426,10 +429,10 @@ class PsychologyMLClassifier:
         y_la_all = np.array([lang_map[r["language"]] for r in data], dtype=np.int64)
         Y_af_all = np.array([r["affect_vector"] for r in data], dtype=np.float32)
 
-        self.W_state, self.b_state = self._train_softmax_head(X_all, y_st_all, len(PSYCH_STATES), epochs=280, lr=0.28, l2=1.5e-3)
-        self.W_triage, self.b_triage = self._train_softmax_head(X_all, y_ti_all, len(TRIAGE_TIERS), epochs=280, lr=0.28, l2=1.5e-3)
-        self.W_lang, self.b_lang = self._train_softmax_head(X_all, y_la_all, len(LANG_CLASSES), epochs=240, lr=0.25, l2=1.5e-3)
-        self.W_affect, self.b_affect = self._train_ridge_head(X_all, Y_af_all, alpha=1.2)
+        self.W_state, self.b_state = self._train_softmax_head(X_all, y_st_all, len(PSYCH_STATES), epochs=340, lr=0.25, l2=1.2e-3)
+        self.W_triage, self.b_triage = self._train_softmax_head(X_all, y_ti_all, len(TRIAGE_TIERS), epochs=340, lr=0.25, l2=1.2e-3)
+        self.W_lang, self.b_lang = self._train_softmax_head(X_all, y_la_all, len(LANG_CLASSES), epochs=280, lr=0.25, l2=1.2e-3)
+        self.W_affect, self.b_affect = self._train_ridge_head(X_all, Y_af_all, alpha=0.8)
         self.is_trained = True
 
         st_acc_tr = float(np.mean(np.argmax(X_all @ self.W_state + self.b_state, axis=1) == y_st_all))

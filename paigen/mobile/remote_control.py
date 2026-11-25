@@ -29,7 +29,7 @@ except ImportError:
     PIL_OK = False
 
 OLLAMA_URL = os.getenv("PAIGEN_OLLAMA_URL", "http://127.0.0.1:11434")
-CHAT_MODEL = os.getenv("PAIGEN_CHAT_MODEL", "qwen2.5vl:3b")
+CHAT_MODEL = os.getenv("PAIGEN_CHAT_MODEL", "paigen-ai")
 
 
 class RemotePCController:

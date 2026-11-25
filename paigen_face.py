@@ -38,7 +38,7 @@ import webbrowser
 # ─── Config ───────────────────────────────────────────────────────────────────
 OLLAMA_URL      = os.getenv("PAIGEN_OLLAMA_URL",    "http://127.0.0.1:11434")
 VISION_MODEL    = os.getenv("PAIGEN_VISION_MODEL",  "qwen2.5vl:3b")
-CHAT_MODEL      = os.getenv("PAIGEN_CHAT_MODEL",    "qwen2.5vl:3b")
+CHAT_MODEL      = os.getenv("PAIGEN_CHAT_MODEL",    "paigen-ai")
 CAM_INDEX       = int(os.getenv("PAIGEN_CAM_INDEX", "0"))
 MOTION_THRESH   = float(os.getenv("PAIGEN_MOTION_THRESH", "25.0"))
 VISION_INTERVAL = float(os.getenv("PAIGEN_VISION_INTERVAL", "25.0"))
@@ -301,8 +301,16 @@ def _tts_worker():
         tts_q.task_done()
 
 def speak(text: str):
+    voice_engine.prefetch(text)
     tts_q.put(text)
     ui_msg_q.put(f"🤖 {text}")
+
+def speak_chunk(text: str):
+    """Queues a streamed sentence for voice playback with parallel prefetch (text already streamed to UI)."""
+    clean = text.strip()
+    if clean:
+        voice_engine.prefetch(clean)
+        tts_q.put(clean)
 
 history_lock = threading.Lock()
 
@@ -710,7 +718,38 @@ def _brain_worker():
         else:
             text_augmented = text
 
-        reply = brain.query(text_augmented, ctx=telemetry)
+        # Stream tokens live to typing box while pipelining completed sentences straight to TTS
+        import re as _re
+        ui_msg_q.put(("__STREAM_START__", ""))
+        full_chunks = []
+        sent_buf = ""
+        try:
+            for token in brain.query_stream(text_augmented, ctx=telemetry):
+                full_chunks.append(token)
+                ui_msg_q.put(("__STREAM_DELTA__", token))
+                sent_buf += token
+                while True:
+                    m = _re.search(r"([.!?।\n])", sent_buf)
+                    if not m:
+                        break
+                    cut = m.end()
+                    chunk = sent_buf[:cut].strip()
+                    rest = sent_buf[cut:]
+                    if len(chunk) >= 14:
+                        speak_chunk(chunk)
+                        sent_buf = rest
+                    else:
+                        break
+        except Exception:
+            pass
+        if sent_buf.strip():
+            speak_chunk(sent_buf.strip())
+        ui_msg_q.put(("__STREAM_END__", ""))
+        reply = "".join(full_chunks).strip()
+        if not reply:
+            reply = brain.query(text_augmented, ctx=telemetry)
+            speak(reply)
+
         with history_lock:
             state.chat_history += [
                 {"role": "user",      "content": text},
@@ -727,7 +766,6 @@ def _brain_worker():
             _set_emotion(Emotion.THINKING)
         else:
             _set_emotion(Emotion.HAPPY)
-        speak(reply)
         chat_q.task_done()
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1333,7 +1371,18 @@ class PaiGenApp:
         while not ui_msg_q.empty():
             try:
                 msg = ui_msg_q.get_nowait()
-                if msg.startswith("🧑 TRAINER:") or msg.startswith("You:"):
+                if isinstance(msg, tuple):
+                    kind, val = msg
+                    self.chat_text.configure(state="normal")
+                    if kind == "__STREAM_START__":
+                        self.chat_text.insert("end", "PaiGen: ", "assistant")
+                    elif kind == "__STREAM_DELTA__":
+                        self.chat_text.insert("end", val, "assistant")
+                    elif kind == "__STREAM_END__":
+                        self.chat_text.insert("end", "\n", "assistant")
+                    self.chat_text.see("end")
+                    self.chat_text.configure(state="disabled")
+                elif msg.startswith("🧑 TRAINER:") or msg.startswith("You:"):
                     clean = msg.split(":", 1)[1].strip()
                     self._append_chat(clean, tag="user")
                 elif msg.startswith("🔴 PAIGEN:") or msg.startswith("🤖"):

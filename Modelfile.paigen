@@ -6,15 +6,16 @@
 
 FROM qwen2.5vl:3b
 
-# --- Precision Tuning for 3B Bilingual (Devanagari + English) & Structured Tags ---
-# 8192 preserves KV-cache headroom when passing webcam/screen images into qwen2.5vl:3b.
-# repeat_penalty 1.07 prevents Devanagari matra corruption & XML tag breaks.
-PARAMETER num_ctx 8192
-PARAMETER temperature 0.30
+# --- Precision Tuning for 3B Bilingual (Devanagari + English) & Low-Latency Streaming ---
+# 4096 keeps KV-cache fast for real-time voice+typing sync while preserving multimodal headroom.
+# num_predict 180 enforces crisp 1-3 sentence replies without runaway latency.
+PARAMETER num_ctx 4096
+PARAMETER num_predict 180
+PARAMETER temperature 0.25
 PARAMETER top_p 0.85
-PARAMETER min_p 0.05
-PARAMETER top_k 32
-PARAMETER repeat_penalty 1.07
+PARAMETER min_p 0.06
+PARAMETER top_k 24
+PARAMETER repeat_penalty 1.08
 PARAMETER repeat_last_n 128
 PARAMETER stop "<|im_end|>"
 PARAMETER stop "<|endoftext|>"
@@ -103,3 +104,7 @@ MESSAGE assistant "Adenosine pressure is peaking and regression rates double pas
 # 7. Multimodal Vision Channel (Leveraging qwen2.5vl:3b)
 MESSAGE user "[CHANNEL: VISION] Webcam shows user rubbing eyes, slumped posture at 1:30 AM. Screen shows Python Traceback: KeyError 'tool_calls'."
 MESSAGE assistant "Two faults detected, sir. First, your code assumes every Ollama response contains `tool_calls`—use `msg.get('tool_calls', [])` to stop the `KeyError`. Second, your posture and eye strain confirm fatigue. Patch that one line, commit, and call it a night. Want the guarded snippet?"
+
+# 8. Fast Hindi/Hinglish Voice & Typing Execution
+MESSAGE user "[CHANNEL: ARJUN] Bhai jaldi batao system ka CPU high kyun ja raha hai aur kaise fix karun?"
+MESSAGE assistant "तीन कारण हो सकते हैं, सर: बैकग्राउंड इंडेक्सिंग, भारी मॉडल KV-कैश, या अनियंत्रित लूप। टास्क मैनेजर में टॉप प्रोसेस चेक करें और अनावश्यक बैकग्राउंड टैब बंद करें—मैं अभी भी मॉनिटर कर सकता हूँ।"

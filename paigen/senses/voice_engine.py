@@ -9,6 +9,7 @@ Provides dual-tier audio speech synthesis:
 3. Mobile Streamer: Exposes volatile MP3 byte synthesis for mobile phone streaming.
 """
 
+from collections import OrderedDict
 import io
 import logging
 import os
@@ -87,6 +88,9 @@ class VoiceEngine:
         self._is_speaking = False
         self._mixer_initialized = False
         self._sapi_engine = None
+        self._audio_cache: "OrderedDict[str, bytes]" = OrderedDict()
+        self._cache_lock = threading.Lock()
+        self._voice_mode = os.getenv("PAIGEN_VOICE_MODE", "auto").strip().lower()
 
         if PYGAME_OK:
             try:
@@ -120,11 +124,18 @@ class VoiceEngine:
 
     def synthesize_mp3_bytes(self, text: str) -> Optional[bytes]:
         """
-        Synthesizes speech into an in-memory MP3 byte buffer for HTTP streaming to mobile devices.
+        Synthesizes speech into an in-memory MP3 byte buffer (with LRU RAM caching)
+        for ultra-low-latency repeat phrases and mobile streaming.
         """
         clean = clean_text_for_speech(text)
         if not clean:
             return None
+
+        with self._cache_lock:
+            cached = self._audio_cache.get(clean)
+            if cached is not None:
+                self._audio_cache.move_to_end(clean)
+                return cached
 
         if GTTS_OK:
             try:
@@ -133,11 +144,27 @@ class VoiceEngine:
                 tts = gTTS(text=clean, lang=lang, tld=tld)
                 fp = io.BytesIO()
                 tts.write_to_fp(fp)
-                return fp.getvalue()
+                raw = fp.getvalue()
+                if raw:
+                    with self._cache_lock:
+                        self._audio_cache[clean] = raw
+                        if len(self._audio_cache) > 96:
+                            self._audio_cache.popitem(last=False)
+                return raw
             except Exception as e:
                 logger.debug(f"gTTS byte synthesis exception: {e}")
 
         return None
+
+    def prefetch(self, text: str) -> None:
+        """Pre-synthesizes a queued sentence in a background thread to eliminate voice gaps."""
+        clean = clean_text_for_speech(text)
+        if not clean or not GTTS_OK or self._voice_mode == "fast":
+            return
+        with self._cache_lock:
+            if clean in self._audio_cache:
+                return
+        threading.Thread(target=self.synthesize_mp3_bytes, args=(clean,), daemon=True).start()
 
     def decode_mp3_to_pcm(
         self,
@@ -262,23 +289,19 @@ class VoiceEngine:
 
             spoke_successfully = False
 
-            # 1. Primary: Natural Neural Audio via gTTS + in-memory pygame.mixer
-            if GTTS_OK and self._mixer_initialized:
+            # 1. Primary: Cached/Prefetched Neural Audio via gTTS + in-memory pygame.mixer
+            if self._voice_mode != "fast" and GTTS_OK and self._mixer_initialized:
                 try:
-                    lang = "hi" if is_devanagari(clean) else "en"
-                    tld = "co.in" if lang == "hi" else "co.uk"
-                    tts = gTTS(text=clean, lang=lang, tld=tld)
-                    fp = io.BytesIO()
-                    tts.write_to_fp(fp)
-                    fp.seek(0)
+                    raw_mp3 = self.synthesize_mp3_bytes(clean)
+                    if raw_mp3:
+                        fp = io.BytesIO(raw_mp3)
+                        pygame.mixer.music.load(fp)
+                        pygame.mixer.music.play()
 
-                    pygame.mixer.music.load(fp)
-                    pygame.mixer.music.play()
+                        while pygame.mixer.music.get_busy():
+                            time.sleep(0.02)
 
-                    while pygame.mixer.music.get_busy():
-                        time.sleep(0.05)
-
-                    spoke_successfully = True
+                        spoke_successfully = True
                 except Exception as e:
                     logger.debug(f"gTTS playback failed ({e}), attempting offline fallback.")
 
