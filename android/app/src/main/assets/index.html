@@ -350,6 +350,14 @@
 
       <div class="card">
         <div class="card-hdr">
+          <span class="card-title">Auto-Update Engine (Live OTA + APK)</span>
+          <button class="btn btn-cyan btn-sm" onclick="checkAppUpdates()">Check Updates</button>
+        </div>
+        <div id="appUpdateStatus" style="font-size:11px;color:var(--muted);">Auto-syncs UI &amp; APK updates automatically when connected to Render.</div>
+      </div>
+
+      <div class="card">
+        <div class="card-hdr">
           <span class="card-title">₹0 PC Bluetooth / Cable Audio Routing</span>
           <button class="btn btn-ghost btn-sm" onclick="loadPcAudioDevices()">Scan Devices</button>
         </div>
@@ -509,7 +517,7 @@
       }
       if (id === 'tab-pc') refreshScreen();
       if (id === 'tab-vault') loadVault();
-      if (id === 'tab-mind') { refreshPermissions(); loadPcAudioDevices(); loadCloudLogs(); }
+      if (id === 'tab-mind') { refreshPermissions(); loadPcAudioDevices(); loadCloudLogs(); refreshAppUpdateInfo(); }
     }
 
     function loadConfig() {
@@ -1341,10 +1349,38 @@
       }
     }
 
-    loadConfig();
+      loadConfig();
     pingServer();
     loadPcAudioDevices();
+    refreshAppUpdateInfo();
     setInterval(pingServer, 12000);
+
+    function refreshAppUpdateInfo() {
+      const el = document.getElementById('appUpdateStatus');
+      if (!el) return;
+      if (hasNative && PaiGenNative.getAppUpdateStatusJson) {
+        try {
+          const st = JSON.parse(PaiGenNative.getAppUpdateStatusJson());
+          const shortH = (st.ota_bundle_sha256 || '').slice(0, 10) || 'built-in';
+          el.innerText = `Installed: v${st.version_name || '5.0.0'} (Build ${st.version_code || 5}) • OTA: ${shortH}`;
+        } catch (e) {}
+      }
+    }
+
+    function checkAppUpdates() {
+      const el = document.getElementById('appUpdateStatus');
+      if (hasNative && PaiGenNative.checkUpdatesNow) {
+        if (el) el.innerText = 'Checking Render server for OTA & APK updates...';
+        PaiGenNative.checkUpdatesNow();
+      } else if (el) {
+        el.innerText = 'OTA auto-updater active in Android APK.';
+      }
+    }
+
+    window.onAppUpdateEvent = function(status, msg) {
+      const el = document.getElementById('appUpdateStatus');
+      if (el && msg) el.innerText = msg;
+    };
   </script>
 </body>
 </html>

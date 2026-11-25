@@ -176,6 +176,23 @@ class TestVercelCloudRelay(unittest.TestCase):
                 xml = resp.read().decode("utf-8")
                 self.assertIn("<Gather", xml)
 
+            # 5. OTA Bundle + APK auto-update manifest & endpoints
+            req_ver = urllib.request.Request(
+                f"{self.base_url}/api/app/version",
+                headers={"Authorization": "Bearer secret123"},
+            )
+            with urllib.request.urlopen(req_ver, timeout=4) as resp:
+                vdata = json.loads(resp.read().decode("utf-8"))
+                self.assertTrue(vdata.get("version_code", 0) >= 5)
+                self.assertTrue(len(vdata.get("bundle_sha256", "")) == 64)
+            req_bun = urllib.request.Request(
+                f"{self.base_url}/api/app/bundle",
+                headers={"Authorization": "Bearer secret123"},
+            )
+            with urllib.request.urlopen(req_bun, timeout=4) as resp:
+                html_bytes = resp.read()
+                self.assertIn(b"PAIGEN AI", html_bytes)
+
         # 5. Config save/load persistence
         with tempfile.TemporaryDirectory() as td:
             cfg = Path(td) / "cloud_bridge.json"

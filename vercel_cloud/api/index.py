@@ -18,6 +18,7 @@ Unified Continuous Server (Render Web Service) & Serverless Fallback (Vercel):
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import base64
 import datetime
+import hashlib
 import hmac
 import json
 import os
@@ -937,6 +938,33 @@ class handler(BaseHTTPRequestHandler):
             self._send_json({"status": "success", "bridge": st})
             return
 
+        if path == "/api/app/version":
+            self._send_json(_get_app_version_manifest())
+            return
+
+        if path == "/api/app/bundle":
+            bundle_path = _REPO_ROOT / "android" / "app" / "src" / "main" / "assets" / "index.html"
+            if not bundle_path.exists():
+                self._send_json({"status": "error", "message": "OTA bundle not found"}, status=404)
+                return
+            self._send_bytes(bundle_path.read_bytes(), "text/html; charset=utf-8")
+            return
+
+        if path == "/api/app/apk":
+            apk_path = _REPO_ROOT / "android" / "dist" / "PaiGen-AI.apk"
+            if not apk_path.exists():
+                self._send_json({"status": "error", "message": "APK binary not found"}, status=404)
+                return
+            data = apk_path.read_bytes()
+            self.send_response(200)
+            self._cors_headers()
+            self.send_header("Content-Type", "application/vnd.android.package-archive")
+            self.send_header("Content-Disposition", 'attachment; filename="PaiGen-AI.apk"')
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
+
         self._send_json({"status": "error", "message": f"Unknown route {path}"}, status=404)
 
     def _handle_twiml_turn(self, qs: Dict[str, List[str]]):
@@ -1210,6 +1238,37 @@ class handler(BaseHTTPRequestHandler):
             return
 
         self._send_json({"status": "error", "message": f"Unknown route {path}"}, status=404)
+
+
+def _get_app_version_manifest() -> Dict[str, Any]:
+    """Builds live OTA bundle & native APK version manifest for connected Android clients."""
+    ver_path = _REPO_ROOT / "android" / "dist" / "version.json"
+    bundle_path = _REPO_ROOT / "android" / "app" / "src" / "main" / "assets" / "index.html"
+    apk_path = _REPO_ROOT / "android" / "dist" / "PaiGen-AI.apk"
+
+    manifest: Dict[str, Any] = {
+        "status": "success",
+        "version_code": 5,
+        "version_name": "5.0.0",
+        "bundle_sha256": "",
+        "apk_sha256": "",
+        "apk_size": 0,
+        "bundle_url": "/api/app/bundle",
+        "apk_url": "/api/app/apk",
+    }
+    if ver_path.exists():
+        try:
+            manifest.update(json.loads(ver_path.read_text(encoding="utf-8")))
+        except Exception:
+            pass
+    # Always compute live bundle hash so index.html edits push immediately over OTA
+    if bundle_path.exists():
+        manifest["bundle_sha256"] = hashlib.sha256(bundle_path.read_bytes()).hexdigest()
+    if apk_path.exists():
+        apk_bytes = apk_path.read_bytes()
+        manifest["apk_sha256"] = hashlib.sha256(apk_bytes).hexdigest()
+        manifest["apk_size"] = len(apk_bytes)
+    return manifest
 
 
 def run_server(host: str = "0.0.0.0", port: Optional[int] = None):

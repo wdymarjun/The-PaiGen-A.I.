@@ -83,5 +83,15 @@ if ($LASTEXITCODE -ne 0) { throw "apksigner sign failed" }
 & $ApkSigner verify --print-certs $FinalApk
 if ($LASTEXITCODE -ne 0) { throw "apksigner verify failed" }
 
+# Generate OTA + APK version manifest for automatic Render server updates
+$VersionJsonPath = Join-Path $DistDir "version.json"
+$ManifestTxt = Get-Content $Manifest -Raw -Encoding UTF8
+$Vc = if ($ManifestTxt -match 'versionCode="(\d+)"') { [int]$Matches[1] } else { 5 }
+$Vn = if ($ManifestTxt -match 'versionName="([^"]+)"') { $Matches[1] } else { "5.0.0" }
+$BundleHash = (Get-FileHash (Join-Path $AssetsDir "index.html") -Algorithm SHA256).Hash.ToLower()
+$ApkHash = (Get-FileHash $FinalApk -Algorithm SHA256).Hash.ToLower()
+$ApkSize = (Get-Item $FinalApk).Length
+@{ version_code = $Vc; version_name = $Vn; bundle_sha256 = $BundleHash; apk_sha256 = $ApkHash; apk_size = $ApkSize } | ConvertTo-Json | Set-Content -Path $VersionJsonPath -Encoding UTF8
+
 $SizeMB = [math]::Round((Get-Item $FinalApk).Length / 1KB, 1)
 Write-Host "`n[+] SUCCESS! Built & verified signed APK: $FinalApk ($SizeMB KB)"

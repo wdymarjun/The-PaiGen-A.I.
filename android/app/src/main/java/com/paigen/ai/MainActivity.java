@@ -6,6 +6,7 @@ import android.app.role.RoleManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.media.AudioManager;
 import android.net.Uri;
@@ -29,6 +30,13 @@ import android.webkit.WebViewClient;
 
 import org.json.JSONObject;
 
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -58,6 +66,7 @@ public class MainActivity extends Activity {
         setupWebView();
         requestCorePermissions();
         startBridgeService();
+        checkAndApplyServerUpdates();
 
         handleIncomingIntent(getIntent());
     }
@@ -167,7 +176,183 @@ public class MainActivity extends Activity {
             }
         });
         setContentView(webView);
-        webView.loadUrl("file:///android_asset/index.html");
+        loadBestBundleUrl();
+    }
+
+    private long getInstalledVersionCode() {
+        try {
+            PackageInfo pi = getPackageManager().getPackageInfo(getPackageName(), 0);
+            return Build.VERSION.SDK_INT >= Build.VERSION_CODES.P ? pi.getLongVersionCode() : pi.versionCode;
+        } catch (Exception e) {
+            return 1;
+        }
+    }
+
+    private String getInstalledVersionName() {
+        try {
+            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Exception e) {
+            return "5.0.0";
+        }
+    }
+
+    private void loadBestBundleUrl() {
+        SharedPreferences prefs = getSharedPreferences("paigen_prefs", MODE_PRIVATE);
+        long otaVer = prefs.getLong("ota_version_code", 0);
+        File otaFile = new File(getFilesDir(), "ota/index.html");
+        if (otaFile.exists() && otaFile.length() > 1024 && otaVer >= getInstalledVersionCode()) {
+            webView.loadUrl("file://" + otaFile.getAbsolutePath());
+        } else {
+            webView.loadUrl("file:///android_asset/index.html");
+        }
+    }
+
+    private String sha256Hex(byte[] data) throws Exception {
+        MessageDigest md = MessageDigest.getInstance("SHA-256");
+        byte[] digest = md.digest(data);
+        StringBuilder sb = new StringBuilder();
+        for (byte b : digest) {
+            sb.append(String.format("%02x", b));
+        }
+        return sb.toString();
+    }
+
+    private String computeBuiltInAssetSha256() {
+        try (InputStream is = getAssets().open("index.html");
+             ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = is.read(buf)) > 0) bos.write(buf, 0, n);
+            return sha256Hex(bos.toByteArray());
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private byte[] httpGetBytes(String urlStr, String token, int timeoutMs) throws Exception {
+        HttpURLConnection conn = (HttpURLConnection) new URL(urlStr).openConnection();
+        if (token != null && !token.isEmpty()) {
+            conn.setRequestProperty("Authorization", "Bearer " + token);
+            conn.setRequestProperty("X-PaiGen-Token", token);
+        }
+        conn.setConnectTimeout(timeoutMs);
+        conn.setReadTimeout(timeoutMs);
+        if (conn.getResponseCode() != 200) {
+            conn.disconnect();
+            throw new RuntimeException("HTTP " + conn.getResponseCode());
+        }
+        try (InputStream is = conn.getInputStream();
+             ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
+            byte[] buf = new byte[16384];
+            int n;
+            while ((n = is.read(buf)) > 0) bos.write(buf, 0, n);
+            return bos.toByteArray();
+        } finally {
+            conn.disconnect();
+        }
+    }
+
+    private void notifyUpdateUi(String status, String msg) {
+        String safe = msg.replace("'", "");
+        mainHandler.post(() -> {
+            if (webView != null) {
+                webView.evaluateJavascript("window.onAppUpdateEvent && window.onAppUpdateEvent('" + status + "', '" + safe + "');", null);
+            }
+        });
+    }
+
+    private void checkAndApplyServerUpdates() {
+        new Thread(() -> {
+            try {
+                SharedPreferences prefs = getSharedPreferences("paigen_prefs", MODE_PRIVATE);
+                String baseUrl = prefs.getString("server_url", "https://paigen-ai-cloud.onrender.com").replaceAll("/+$", "");
+                String token = prefs.getString("cloud_token", "");
+
+                byte[] verBytes = httpGetBytes(baseUrl + "/api/app/version", token, 8000);
+                JSONObject ver = new JSONObject(new String(verBytes, "UTF-8"));
+                long serverVerCode = ver.optLong("version_code", 0);
+                String serverVerName = ver.optString("version_name", "");
+                String serverBundleHash = ver.optString("bundle_sha256", "");
+                String serverApkHash = ver.optString("apk_sha256", "");
+
+                long installedVer = getInstalledVersionCode();
+                String currentHash = prefs.getString("ota_bundle_sha256", "");
+                if (currentHash.isEmpty() || prefs.getLong("ota_version_code", 0) < installedVer) {
+                    currentHash = computeBuiltInAssetSha256();
+                    prefs.edit()
+                        .putString("ota_bundle_sha256", currentHash)
+                        .putLong("ota_version_code", installedVer)
+                        .apply();
+                }
+
+                // 1. Silent Instagram/Roblox-style OTA UI/JS bundle hot-patch (zero taps!)
+                if (!serverBundleHash.isEmpty() && !serverBundleHash.equalsIgnoreCase(currentHash)) {
+                    notifyUpdateUi("downloading", "Downloading live OTA update...");
+                    byte[] bundleBytes = httpGetBytes(baseUrl + "/api/app/bundle", token, 15000);
+                    String actualHash = sha256Hex(bundleBytes);
+                    if (actualHash.equalsIgnoreCase(serverBundleHash) && bundleBytes.length > 1024) {
+                        File otaDir = new File(getFilesDir(), "ota");
+                        if (!otaDir.exists()) otaDir.mkdirs();
+                        File tmp = new File(otaDir, "index.html.tmp");
+                        File dest = new File(otaDir, "index.html");
+                        try (FileOutputStream fos = new FileOutputStream(tmp)) {
+                            fos.write(bundleBytes);
+                        }
+                        if (dest.exists()) dest.delete();
+                        tmp.renameTo(dest);
+                        prefs.edit()
+                            .putString("ota_bundle_sha256", actualHash)
+                            .putLong("ota_version_code", Math.max(installedVer, serverVerCode))
+                            .apply();
+                        notifyUpdateUi("applied", "OTA live update applied! Reloading...");
+                        mainHandler.post(() -> {
+                            if (webView != null) {
+                                webView.loadUrl("file://" + dest.getAbsolutePath());
+                            }
+                        });
+                    }
+                }
+
+                // 2. Native APK binary update (when version_code > installed APK)
+                if (serverVerCode > installedVer && !serverApkHash.isEmpty()) {
+                    String promptedHash = prefs.getString("prompted_apk_sha256", "");
+                    if (!serverApkHash.equalsIgnoreCase(promptedHash)) {
+                        notifyUpdateUi("apk_downloading", "Downloading PaiGen APK v" + serverVerName + "...");
+                        byte[] apkBytes = httpGetBytes(baseUrl + "/api/app/apk", token, 30000);
+                        String actualApkHash = sha256Hex(apkBytes);
+                        if (actualApkHash.equalsIgnoreCase(serverApkHash) && apkBytes.length > 10000) {
+                            File otaDir = new File(getFilesDir(), "ota");
+                            if (!otaDir.exists()) otaDir.mkdirs();
+                            File apkFile = new File(otaDir, "PaiGen-Update.apk");
+                            try (FileOutputStream fos = new FileOutputStream(apkFile)) {
+                                fos.write(apkBytes);
+                            }
+                            prefs.edit().putString("prompted_apk_sha256", actualApkHash).apply();
+                            notifyUpdateUi("apk_ready", "PaiGen APK v" + serverVerName + " ready — tap Update!");
+                            mainHandler.post(() -> launchApkInstaller());
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                notifyUpdateUi("idle", "Up to date");
+            }
+        }).start();
+    }
+
+    private void launchApkInstaller() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !getPackageManager().canRequestPackageInstalls()) {
+                Intent perm = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName()));
+                startActivity(perm);
+                return;
+            }
+            Uri apkUri = Uri.parse("content://com.paigen.ai.apkprovider/update.apk");
+            Intent intent = new Intent(Intent.ACTION_VIEW);
+            intent.setDataAndType(apkUri, "application/vnd.android.package-archive");
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(intent);
+        } catch (Exception ignored) {
+        }
     }
 
     private void requestCorePermissions() {
@@ -250,6 +435,28 @@ public class MainActivity extends Activity {
                 .putBoolean("auto_ask_calls", autoAskCalls)
                 .putString("preferred_lang", preferredLang)
                 .apply();
+            checkAndApplyServerUpdates();
+        }
+
+        @JavascriptInterface
+        public void checkUpdatesNow() {
+            SharedPreferences prefs = getSharedPreferences("paigen_prefs", MODE_PRIVATE);
+            prefs.edit().remove("prompted_apk_sha256").apply();
+            checkAndApplyServerUpdates();
+        }
+
+        @JavascriptInterface
+        public String getAppUpdateStatusJson() {
+            try {
+                SharedPreferences prefs = getSharedPreferences("paigen_prefs", MODE_PRIVATE);
+                JSONObject o = new JSONObject();
+                o.put("version_code", getInstalledVersionCode());
+                o.put("version_name", getInstalledVersionName());
+                o.put("ota_bundle_sha256", prefs.getString("ota_bundle_sha256", ""));
+                return o.toString();
+            } catch (Exception e) {
+                return "{}";
+            }
         }
 
         @JavascriptInterface
