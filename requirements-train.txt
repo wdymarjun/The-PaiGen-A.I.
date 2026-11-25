@@ -1,10 +1,11 @@
-# PaiGen AI Optional LoRA Fine-Tuning Stack
-# Requires NVIDIA GPU with CUDA
-torch>=2.4.0
-transformers>=4.44.0
+# PaiGen AI QLoRA Fine-Tuning Stack (NVIDIA RTX CUDA 12.x)
+torch>=2.7.0
+transformers>=4.46.0
 datasets>=2.21.0
-peft>=0.12.0
-trl>=0.9.6
-bitsandbytes>=0.43.0
-accelerate>=0.33.0
+peft>=0.13.0
+trl>=0.12.0
+bitsandbytes>=0.45.0
+accelerate>=0.34.0
+sentencepiece>=0.2.0
+protobuf>=4.25.0
 

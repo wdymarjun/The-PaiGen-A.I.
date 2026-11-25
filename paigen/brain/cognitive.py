@@ -280,6 +280,101 @@ STRICT INVARIANT: You run 100% locally on localhost. Zero cloud calls."""
         )
         return HumanConditionRegistry.compile_system_injection(snapshot)
 
+    @staticmethod
+    def _is_complex_reasoning_query(user_input: str) -> bool:
+        """Detects multi-step coding, architecture, math, or deep-analysis prompts."""
+        low = (user_input or "").lower()
+        if "[channel: call]" in low:
+            return False
+        complex_cues = (
+            "architecture", "multi-file", "refactor", "debug", "algorithm", "complexity",
+            "prove", "trade-off", "tradeoff", "system design", "step by step", "root cause",
+            "optimize", "vulnerability", "concurrency", "deadlock", "compare ",
+        )
+        return len(low.split()) >= 26 or any(c in low for c in complex_cues)
+
+    @staticmethod
+    def _select_inference_options(user_input: str, ctx: TelemetryContext) -> Dict[str, Union[int, float]]:
+        """Dynamically allocates token budget and context depth instead of a flat 180-token cap."""
+        low = (user_input or "").lower()
+        if "[channel: call]" in low:
+            return {"temperature": 0.18, "top_p": 0.80, "num_predict": 150, "num_ctx": 4096}
+        if CognitiveBrain._is_complex_reasoning_query(user_input):
+            return {"temperature": 0.22 if ctx.is_deep_focus else 0.35, "top_p": 0.88, "num_predict": 1200, "num_ctx": 8192}
+        return {"temperature": 0.30 if ctx.is_deep_focus else 0.55, "top_p": 0.90, "num_predict": 512, "num_ctx": 4096}
+
+    def _try_frontier_escalation(self, messages: List[Dict[str, str]], user_input: str) -> str:
+        """
+        Optional Frontier Teacher Escalation + Local Self-Distillation Flywheel:
+        Enabled only when `PAIGEN_FRONTIER_ESCALATION=1` and a cloud API key is configured.
+        Verified frontier answers are harvested into ChatML for local LoRA absorption.
+        """
+        import os
+        if os.getenv("PAIGEN_FRONTIER_ESCALATION", "0") != "1":
+            return ""
+        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            return ""
+        try:
+            prompt_txt = "\n".join(f"[{m['role'].upper()}]: {m['content'][:1600]}" for m in messages[-4:])
+            if os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"):
+                g_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+                g_model = os.getenv("PAIGEN_FRONTIER_MODEL", "gemini-2.5-flash")
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{g_model}:generateContent?key={g_key}"
+                body = {"contents": [{"parts": [{"text": prompt_txt}]}]}
+                req = urllib.request.Request(url, data=json.dumps(body).encode("utf-8"), headers={"Content-Type": "application/json"}, method="POST")
+                with urllib.request.urlopen(req, timeout=20) as resp:
+                    res = json.loads(resp.read().decode("utf-8"))
+                ans = res.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "").strip()
+            else:
+                req = urllib.request.Request(
+                    "https://api.openai.com/v1/chat/completions",
+                    data=json.dumps({"model": os.getenv("PAIGEN_FRONTIER_MODEL", "gpt-4o-mini"), "messages": messages[-4:]}).encode("utf-8"),
+                    headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=20) as resp:
+                    res = json.loads(resp.read().decode("utf-8"))
+                ans = res.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+            if ans:
+                try:
+                    from paigen.brain.autolearner import log_training_sample
+                    log_training_sample(user_input, ans, reasoning_style="frontier_distillation")
+                except Exception:
+                    pass
+                return ans
+        except Exception as exc:
+            logger.debug(f"Frontier escalation skipped: {exc}")
+        return ""
+
+    def _refine_complex_answer(self, user_input: str, draft: str, options: Dict[str, Union[int, float]]) -> str:
+        """Runs a fast 2nd-pass System-2 critique & refinement locally on complex engineering/math outputs."""
+        if not draft or len(draft) < 80:
+            return draft
+        critique_msgs = [
+            {
+                "role": "system",
+                "content": (
+                    "You are PaiGen AI's System-2 Verifier. Review the draft against the user's request for hidden edge cases, "
+                    "logic bugs, or missing steps. Output ONLY the improved final answer concisely—no meta-commentary."
+                ),
+            },
+            {"role": "user", "content": f"Task: {user_input}\n\nDraft:\n{draft}\n\nVerify and refine cleanly:"},
+        ]
+        payload = {"model": self.model_name, "messages": critique_msgs, "stream": False, "options": {**options, "temperature": 0.15}}
+        try:
+            req = urllib.request.Request(
+                f"{self.ollama_base_url}/api/chat",
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                refined = json.loads(resp.read().decode("utf-8")).get("message", {}).get("content", "").strip()
+            return refined or draft
+        except Exception:
+            return draft
+
     def query(
         self,
         user_input: str,
@@ -333,14 +428,19 @@ STRICT INVARIANT: You run 100% locally on localhost. Zero cloud calls."""
             except Exception as e:
                 logger.debug(f"AutoLearner routing exception ({e}), falling back to direct chat.")
 
+        is_complex = self._is_complex_reasoning_query(user_input)
+        options = self._select_inference_options(user_input, ctx)
+        if is_complex:
+            frontier_ans = self._try_frontier_escalation(messages, user_input)
+            if frontier_ans:
+                self.db.add_message(ctx.session_id, "assistant", frontier_ans, metadata={"frontier_distilled": True})
+                return frontier_ans
+
         payload = {
             "model": self.model_name,
             "messages": messages,
             "stream": False,
-            "options": {
-                "temperature": 0.60 if not ctx.is_deep_focus else 0.30,
-                "top_p": 0.90,
-            },
+            "options": options,
         }
 
         url = f"{self.ollama_base_url}/api/chat"
@@ -352,9 +452,11 @@ STRICT INVARIANT: You run 100% locally on localhost. Zero cloud calls."""
         )
 
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
+            with urllib.request.urlopen(req, timeout=45) as resp:
                 result = json.loads(resp.read().decode("utf-8"))
                 assistant_message = result.get("message", {}).get("content", "")
+                if is_complex and assistant_message:
+                    assistant_message = self._refine_complex_answer(user_input, assistant_message, options)
                 self.db.add_message(ctx.session_id, "assistant", assistant_message)
                 return assistant_message
         except urllib.error.URLError as e:
@@ -418,10 +520,7 @@ STRICT INVARIANT: You run 100% locally on localhost. Zero cloud calls."""
             "model": self.model_name,
             "messages": messages,
             "stream": True,
-            "options": {
-                "temperature": 0.60 if not ctx.is_deep_focus else 0.30,
-                "top_p": 0.90,
-            },
+            "options": self._select_inference_options(user_input, ctx),
         }
 
         url = f"{self.ollama_base_url}/api/chat"

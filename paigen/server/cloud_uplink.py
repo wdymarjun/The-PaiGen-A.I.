@@ -36,6 +36,7 @@ logger = logging.getLogger("PaiGen.CloudUplink")
 
 DEFAULT_CLOUD_URL = "https://paigen-ai-cloud.onrender.com"
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "data" / "cloud_bridge.json"
+DEFAULT_MIRROR_PATH = Path(__file__).resolve().parents[2] / "data" / "cloud_state_mirror.json"
 
 
 def load_cloud_config(config_path: Path = DEFAULT_CONFIG_PATH) -> Dict[str, str]:
@@ -82,10 +83,12 @@ class CloudUplinkWorker:
         self.running = False
         self._last_heartbeat = 0.0
         self._last_screen_push = 0.0
+        self._last_state_sync = 0.0
         self._last_screen_sig: Optional[int] = None
         self._watch_until = 0.0
         self._push_lock = threading.Lock()
         self._push_inflight = False
+        self.mirror_path = DEFAULT_MIRROR_PATH
 
     def _headers(self) -> Dict[str, str]:
         h = {"Content-Type": "application/json"}
@@ -256,12 +259,51 @@ class CloudUplinkWorker:
 
         return {"status": "error", "message": f"Unknown command type '{ctype}'"}
 
+    def sync_cloud_state(self) -> Dict[str, Any]:
+        """
+        Two-way durable replication between PC disk (`cloud_state_mirror.json`) and Render RAM.
+        Hydrates Render automatically after free-tier restarts and persists cloud calls/chats to PC.
+        """
+        mirror: Dict[str, Any] = {"chat_feed": [], "calls": [], "overrides": {}}
+        try:
+            if self.mirror_path.exists():
+                loaded = json.loads(self.mirror_path.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict):
+                    mirror.update(loaded)
+        except Exception:
+            pass
+        if not mirror.get("calls"):
+            mirror["calls"] = self.telephony.list_calls(limit=30)
+        if not mirror.get("overrides"):
+            mirror["overrides"] = self.controller.db_store.list_overrides()
+
+        resp = self._post("/api/uplink/state_sync", mirror, timeout=8.0)
+        if resp.get("status") == "ok":
+            updated = {
+                "chat_feed": resp.get("chat_feed") or mirror["chat_feed"],
+                "calls": resp.get("calls") or mirror["calls"],
+                "overrides": resp.get("overrides") or mirror["overrides"],
+                "synced_at": time.time(),
+            }
+            try:
+                self.mirror_path.parent.mkdir(parents=True, exist_ok=True)
+                self.mirror_path.write_text(json.dumps(updated, ensure_ascii=False, indent=2), encoding="utf-8")
+            except Exception:
+                pass
+            self._last_state_sync = time.time()
+        return resp
+
     def step(self) -> int:
         """Executes one poll + heartbeat cycle. Returns number of commands processed."""
         now = time.time()
         if now - self._last_heartbeat >= 5.0:
             self.send_heartbeat()
         polled = self._get("/api/uplink/poll")
+        if polled.get("needs_state_restore") or (now - self._last_state_sync >= 30.0):
+            try:
+                self.sync_cloud_state()
+            except Exception:
+                pass
         if polled.get("watch_active"):
             self._watch_until = max(self._watch_until, now + 6.0)
         watching = time.time() < self._watch_until

@@ -337,6 +337,8 @@ class PCAudioCallBridge:
             self.last_action = res.get("call_action", "LOG_CALLBACK")
 
             voice.speak_to_device(reply, device_index=self.output_device)
+            # Acoustic echo guard: brief settle window before re-arming mic VAD
+            time.sleep(0.18)
 
             if res.get("should_terminate"):
                 break

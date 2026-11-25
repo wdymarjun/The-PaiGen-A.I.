@@ -927,7 +927,8 @@ class handler(BaseHTTPRequestHandler):
             cmds = STORE.pop_all_cmds()
             sw = STORE.get_json("paigen:screen_watch") or {}
             watch_active = float(sw.get("until", 0.0)) > time.time()
-            self._send_json({"status": "ok", "commands": cmds, "watch_active": watch_active})
+            needs_restore = not bool(STORE.get_json("paigen:calls") or STORE.get_json("paigen:chat_feed"))
+            self._send_json({"status": "ok", "commands": cmds, "watch_active": watch_active, "needs_state_restore": needs_restore})
             return
 
         if path == "/api/telephony/calls":
@@ -1038,6 +1039,30 @@ class handler(BaseHTTPRequestHandler):
             if cmd_id:
                 STORE.set_json(f"paigen:res:{cmd_id}", data.get("result", {}), ex=60)
             self._send_json({"status": "ok"})
+            return
+
+        if path == "/api/uplink/state_sync":
+            # Two-way durable sync between Windows PC SQLite mirror and Render volatile memory
+            cur_feed = STORE.get_json("paigen:chat_feed") or []
+            pc_feed = data.get("chat_feed") or []
+            if not cur_feed and pc_feed:
+                STORE.set_json("paigen:chat_feed", pc_feed[-80:], ex=86400)
+                cur_feed = pc_feed[-80:]
+            cur_calls = STORE.get_json("paigen:calls") or []
+            pc_calls = data.get("calls") or []
+            if not cur_calls and pc_calls:
+                STORE.set_json("paigen:calls", pc_calls[:50], ex=3600)
+                cur_calls = pc_calls[:50]
+            if _init_parent_core() and data.get("overrides"):
+                for k, v in (data.get("overrides") or {}).items():
+                    if v and not _SQLITE_STORE.get_override(k):
+                        _SQLITE_STORE.set_override(k, str(v))
+            self._send_json({
+                "status": "ok",
+                "chat_feed": cur_feed[-80:],
+                "calls": cur_calls[:50],
+                "overrides": _SQLITE_STORE.list_overrides() if PARENT_CORE_OK and _SQLITE_STORE else {},
+            })
             return
 
         # --- Render Parent Brain & Psychology Endpoints ---

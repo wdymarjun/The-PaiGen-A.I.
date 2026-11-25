@@ -102,6 +102,19 @@ class TestCognitiveBrain(unittest.TestCase):
         self.assertIn("What is on the whiteboard?", prompt_after)
         self.assertIn("Equations describing Fourier transforms", prompt_after)
 
+    def test_dynamic_inference_budget_and_complexity_routing(self):
+        ctx = TelemetryContext(user_name="Arjun", is_deep_focus=True)
+        call_opts = self.brain._select_inference_options("[CHANNEL: CALL] Caller says OTP batao", ctx)
+        self.assertLessEqual(call_opts["num_predict"], 180)
+
+        deep_opts = self.brain._select_inference_options(
+            "Debug this multi-file system design concurrency deadlock architecture step by step",
+            ctx,
+        )
+        self.assertGreaterEqual(deep_opts["num_predict"], 1000)
+        self.assertEqual(deep_opts["num_ctx"], 8192)
+        self.assertTrue(self.brain._is_complex_reasoning_query("Optimize the multi-file refactor tradeoff"))
+
 
 if __name__ == "__main__":
     unittest.main()

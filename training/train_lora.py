@@ -9,6 +9,7 @@ Properly formats ChatML messages using the model's official tokenizer chat templ
 """
 
 import argparse
+import inspect
 import os
 from pathlib import Path
 
@@ -50,12 +51,12 @@ def verify_dataset_formatting(base_model_id: str, dataset_path: str):
 
 
 def run_training(
-    base_model_id: str = "Qwen/Qwen2.5-3B-Instruct",
+    base_model_id: str = "Qwen/Qwen2.5-7B-Instruct",
     dataset_path: str = "./training/paigen_chatml_dataset.jsonl",
-    output_dir: str = "./output/paigen-brain-lora",
-    max_steps: int = 150,
+    output_dir: str = "./output/paigen-7b-lora",
+    max_steps: int = 160,
 ):
-    """Executes local parameter-efficient fine-tuning if PyTorch/CUDA is available."""
+    """Executes local 4-bit NF4 QLoRA fine-tuning tuned for 8GB RTX VRAM."""
     try:
         import torch
         from datasets import load_dataset
@@ -70,7 +71,7 @@ def run_training(
         from trl import SFTTrainer
     except ImportError as e:
         print(f"[!] PyTorch/Transformers/PEFT/TRL not installed in current environment: {e}")
-        print("[!] Install pinned dependencies with: pip install -r requirements.txt")
+        print("[!] Install dependencies with: pip install -r requirements-train.txt")
         return False
 
     if not torch.cuda.is_available():
@@ -79,14 +80,14 @@ def run_training(
 
     gpu_name = torch.cuda.get_device_name(0)
     vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-    print(f"[*] Initializing PaiGen Brain Fine-Tuning on: {base_model_id}")
+    print(f"[*] Initializing PaiGen Brain 7B QLoRA Fine-Tuning on: {base_model_id}")
     print(f"[*] Target GPU: {gpu_name} ({vram_gb:.2f} GB VRAM)")
 
-    # 4-bit Quantization Configuration for 8GB VRAM
+    use_bf16 = torch.cuda.is_bf16_supported()
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=torch.float16,
+        bnb_4bit_compute_dtype=torch.bfloat16 if use_bf16 else torch.float16,
         bnb_4bit_use_double_quant=True,
     )
 
@@ -98,17 +99,18 @@ def run_training(
         base_model_id,
         quantization_config=bnb_config,
         device_map="auto",
-        trust_remote_code=True
+        trust_remote_code=True,
     )
-    model = prepare_model_for_kbit_training(model)
+    model.config.use_cache = False
+    model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
 
     lora_config = LoraConfig(
-        r=32,
-        lora_alpha=64,
+        r=16,
+        lora_alpha=32,
         target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
         lora_dropout=0.05,
         bias="none",
-        task_type="CAUSAL_LM"
+        task_type="CAUSAL_LM",
     )
 
     model = get_peft_model(model, lora_config)
@@ -116,57 +118,101 @@ def run_training(
 
     raw_dataset = load_dataset("json", data_files=dataset_path, split="train")
     split_ds = raw_dataset.train_test_split(test_size=0.1, seed=42)
-    # Apply official ChatML chat template to format clean text
     train_dataset = format_dataset_with_chat_template(split_ds["train"], tokenizer)
     eval_dataset = format_dataset_with_chat_template(split_ds["test"], tokenizer)
 
-    training_args = TrainingArguments(
-        output_dir=output_dir,
-        per_device_train_batch_size=2,
-        gradient_accumulation_steps=4,
-        warmup_ratio=0.08,
-        lr_scheduler_type="cosine",
-        weight_decay=0.01,
-        max_grad_norm=0.3,
-        max_steps=max_steps,
-        learning_rate=1.5e-4,
-        bf16=torch.cuda.is_bf16_supported(),
-        fp16=not torch.cuda.is_bf16_supported(),
-        eval_strategy="steps",
-        eval_steps=25,
-        logging_steps=10,
-        save_strategy="steps",
-        save_steps=50,
-        load_best_model_at_end=True,
-        report_to="none",  # Strict Invariant: Zero cloud telemetry
-    )
+    SFTConfig = getattr(trl, "SFTConfig", None)
+    if SFTConfig is not None:
+        sft_params = inspect.signature(SFTConfig.__init__).parameters
+        cfg_kwargs = {
+            "output_dir": output_dir,
+            "per_device_train_batch_size": 1,
+            "per_device_eval_batch_size": 1,
+            "gradient_accumulation_steps": 8,
+            "gradient_checkpointing": True,
+            "optim": "paged_adamw_8bit",
+            "warmup_ratio": 0.08,
+            "lr_scheduler_type": "cosine",
+            "weight_decay": 0.01,
+            "max_grad_norm": 0.3,
+            "max_steps": max_steps,
+            "learning_rate": 1.5e-4,
+            "bf16": use_bf16,
+            "fp16": not use_bf16,
+            "eval_strategy": "steps",
+            "eval_steps": 40,
+            "logging_steps": 10,
+            "save_strategy": "steps",
+            "save_steps": 80,
+            "load_best_model_at_end": True,
+            "report_to": "none",
+        }
+        if "dataset_text_field" in sft_params:
+            cfg_kwargs["dataset_text_field"] = "text"
+        if "max_seq_length" in sft_params:
+            cfg_kwargs["max_seq_length"] = 1024
+        elif "max_length" in sft_params:
+            cfg_kwargs["max_length"] = 1024
+        training_args = SFTConfig(**{k: v for k, v in cfg_kwargs.items() if k in sft_params})
+    else:
+        training_args = TrainingArguments(
+            output_dir=output_dir,
+            per_device_train_batch_size=1,
+            gradient_accumulation_steps=8,
+            gradient_checkpointing=True,
+            optim="paged_adamw_8bit",
+            warmup_ratio=0.08,
+            lr_scheduler_type="cosine",
+            weight_decay=0.01,
+            max_grad_norm=0.3,
+            max_steps=max_steps,
+            learning_rate=1.5e-4,
+            bf16=use_bf16,
+            fp16=not use_bf16,
+            eval_strategy="steps",
+            eval_steps=40,
+            logging_steps=10,
+            save_strategy="steps",
+            save_steps=80,
+            load_best_model_at_end=True,
+            report_to="none",
+        )
 
-    trainer = SFTTrainer(
-        model=model,
-        train_dataset=train_dataset,
-        eval_dataset=eval_dataset,
-        peft_config=lora_config,
-        dataset_text_field="text",
-        max_seq_length=1536,
-        tokenizer=tokenizer,
-        args=training_args,
-    )
+    trainer_params = inspect.signature(SFTTrainer.__init__).parameters
+    trainer_kwargs = {
+        "model": model,
+        "train_dataset": train_dataset,
+        "eval_dataset": eval_dataset,
+        "args": training_args,
+    }
+    if "processing_class" in trainer_params:
+        trainer_kwargs["processing_class"] = tokenizer
+    elif "tokenizer" in trainer_params:
+        trainer_kwargs["tokenizer"] = tokenizer
+    if "dataset_text_field" in trainer_params:
+        trainer_kwargs["dataset_text_field"] = "text"
+    if "max_seq_length" in trainer_params:
+        trainer_kwargs["max_seq_length"] = 1024
+    # Do not pass peft_config again when model is already wrapped via get_peft_model
+    trainer = SFTTrainer(**trainer_kwargs)
 
-    print("[*] Starting Local Training...")
+    print("[*] Starting Local 7B QLoRA Training on RTX GPU...")
     trainer.train()
 
-    print(f"[*] Training Complete! Saving adapter to: {output_dir}")
-    model.save_pretrained(output_dir)
-    tokenizer.save_pretrained(output_dir)
+    out_path = Path(output_dir)
+    out_path.mkdir(parents=True, exist_ok=True)
+    print(f"[*] Training Complete! Saving LoRA adapter to: {out_path}")
+    trainer.model.save_pretrained(str(out_path))
+    tokenizer.save_pretrained(str(out_path))
     return True
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="PaiGen Local LoRA Fine-Tuner")
-    parser.add_argument("--model", default="Qwen/Qwen2.5-3B-Instruct", help="Base HuggingFace Model ID")
+    parser = argparse.ArgumentParser(description="PaiGen Local 7B QLoRA Fine-Tuner")
+    parser.add_argument("--model", default="Qwen/Qwen2.5-7B-Instruct", help="Base HuggingFace Model ID")
     parser.add_argument("--dataset", default="./training/paigen_chatml_dataset.jsonl", help="Dataset path")
-    parser.add_argument("--output", default="./output/paigen-brain-lora", help="Output directory")
-    parser.add_argument("--steps", type=int, default=150, help="Training steps")
+    parser.add_argument("--output", default="./output/paigen-7b-lora", help="Output directory")
+    parser.add_argument("--steps", type=int, default=160, help="Training steps")
     parser.add_argument("--verify-only", action="store_true", help="Only verify chat template formatting")
     args = parser.parse_args()
 
@@ -177,5 +223,5 @@ if __name__ == "__main__":
             base_model_id=args.model,
             dataset_path=args.dataset,
             output_dir=args.output,
-            max_steps=args.steps
+            max_steps=args.steps,
         )

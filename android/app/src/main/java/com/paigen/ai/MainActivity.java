@@ -185,6 +185,13 @@ public class MainActivity extends Activity {
     }
 
     private void notifySpeaking(boolean speaking) {
+        try {
+            AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+            if (am != null && am.getMode() == AudioManager.MODE_IN_COMMUNICATION) {
+                am.setMicrophoneMute(speaking);
+            }
+        } catch (Exception ignored) {
+        }
         mainHandler.post(() -> {
             if (webView != null) {
                 webView.evaluateJavascript("window.onNativeSpeakState && window.onNativeSpeakState(" + speaking + ");", null);
@@ -713,6 +720,7 @@ public class MainActivity extends Activity {
             try {
                 AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
                 if (am != null) {
+                    am.setMicrophoneMute(false);
                     am.setSpeakerphoneOn(false);
                     am.setMode(AudioManager.MODE_NORMAL);
                 }

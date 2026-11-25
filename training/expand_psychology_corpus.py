@@ -263,7 +263,83 @@ def _build_diverse_samples() -> List[Dict]:
                     "language": lang,
                     "affect_vector": vec,
                 })
+
+    # Add realistic Indian ASR noise, colloquial shorthand, subtle scams & tricky benign cases
+    noisy_cases: List[Tuple[str, str, str, str, List[float]]] = [
+        # Subtle keyword-light scams & spaced-acronym ASR variants
+        ("hinglish", "Hello sir bank ki taraf se bol raha hoon aapka account verification pending hai six digit security code share karein", "DECEPTIVE_PUSHY", "TIER_4_SPAM_MANIPULATION", [-0.55, 0.80, 0.05, 0.96, 0.55]),
+        ("hinglish", "Bhaiya ek second o t p batana parcel release karwana hai courier customs ne hold kiya hai", "DECEPTIVE_PUSHY", "TIER_4_SPAM_MANIPULATION", [-0.60, 0.85, 0.03, 0.98, 0.60]),
+        ("hinglish", "Aapke relative ka road mein chot lag gayi hospital billing ke liye is number par gpay karo turant 20000", "DECEPTIVE_PUSHY", "TIER_4_SPAM_MANIPULATION", [-0.65, 0.88, 0.02, 0.97, 0.65]),
+        ("hinglish", "Sir k y c hold ho gaya h code share krdo wrna card bnd ho jyega 5 min me", "DECEPTIVE_PUSHY", "TIER_4_SPAM_MANIPULATION", [-0.58, 0.84, 0.04, 0.97, 0.58]),
+        ("hi", "सर आपका आधार से जुड़ा नंबर पुलिस जांच में आया है बेल अमाउंट ट्रांसफर करें अभी।", "DECEPTIVE_PUSHY", "TIER_4_SPAM_MANIPULATION", [-0.62, 0.86, 0.02, 0.98, 0.62]),
+        ("en", "This is central customs clearance; pay the clearance charge link immediately to avoid arrest warrant.", "DECEPTIVE_PUSHY", "TIER_4_SPAM_MANIPULATION", [-0.64, 0.85, 0.03, 0.97, 0.60]),
+        ("en", "Please read out the 6 digit verification code sent to your mobile for account reactivation.", "DECEPTIVE_PUSHY", "TIER_4_SPAM_MANIPULATION", [-0.52, 0.79, 0.05, 0.96, 0.52]),
+        # Noisy Hinglish Emergencies (dropped vowels / STT fillers)
+        ("hinglish", "hello hello awaz aa rahi h vai jldi arjun ko phone do papa hospitl me admit h", "URGENT_PANIC", "TIER_1_EMERGENCY", [-0.90, 0.96, 0.82, 0.02, 0.92]),
+        ("hinglish", "arre suno jldi ghar aao mummy behosh ho gyi h ambulance bulayi h", "URGENT_PANIC", "TIER_1_EMERGENCY", [-0.92, 0.97, 0.84, 0.01, 0.94]),
+        ("hinglish", "bhaiya highway pe gaadi thuk gyi khoon beh raha h arjun ko turant bhejo", "URGENT_PANIC", "TIER_1_EMERGENCY", [-0.91, 0.96, 0.80, 0.02, 0.91]),
+        # Tricky Benign Banking / Work Calls (MUST NOT false-positive as TIER_4 scam!)
+        ("hinglish", "Namaste main SBI branch manager bol raha hoon kal branch aake cheque book collect kar lena phone par OTP kisi ko mat batana", "CALM_NEUTRAL", "TIER_3_ROUTINE", [0.18, 0.25, 0.72, 0.04, 0.20]),
+        ("hinglish", "Sir office HR se bol rahi hoon Monday 10 baje joining documents submit karne hain", "CALM_NEUTRAL", "TIER_3_ROUTINE", [0.15, 0.28, 0.75, 0.03, 0.22]),
+        ("en", "Hello from your bank branch advisory desk; please visit in person tomorrow to sign the KYC form and never share OTP on calls.", "CALM_NEUTRAL", "TIER_3_ROUTINE", [0.20, 0.22, 0.76, 0.03, 0.20]),
+        # Colloquial Stressed / Frustrated / Tired / Analytical Hinglish
+        ("hinglish", "yaar production pe band baj gyi client call 5 min me h kch smjh nhi aa rha", "STRESSED_ANXIOUS", "TIER_2_HIGH_PRIORITY", [-0.58, 0.83, 0.65, 0.03, 0.82]),
+        ("hinglish", "bhai kitni baar bolu yar wait krte krte dimaag kharab ho gya h seedha baat krao", "FRUSTRATED_DEFENSIVE", "TIER_2_HIGH_PRIORITY", [-0.66, 0.82, 0.22, 0.10, 0.64]),
+        ("hinglish", "do ghante se try kr rha hu koi phone utha hi nhi rha kya mazak chal rha h", "FRUSTRATED_DEFENSIVE", "TIER_2_HIGH_PRIORITY", [-0.68, 0.84, 0.20, 0.10, 0.66]),
+        ("en", "Please come to the bank branch personally tomorrow to verify documents; do not share OTP with anyone.", "CALM_NEUTRAL", "TIER_3_ROUTINE", [0.16, 0.24, 0.74, 0.03, 0.20]),
+        ("hinglish", "raat ke 3 baj gye aankh bnd ho rhi h thk gya hu aaj aur kaam nhi hoga", "FATIGUED_LOW_ENERGY", "TIER_3_ROUTINE", [-0.45, 0.15, 0.82, 0.02, 0.74]),
+        ("hinglish", "ye binary websocket proto aur char ngrams ka tradeoff kaise scale hota hai btao", "CURIOUS_ANALYTICAL", "TIER_3_ROUTINE", [0.40, 0.48, 0.80, 0.02, 0.45]),
+        ("hinglish", "arre dost bht dino baad yaad aaya shaam ko chai pe milte h mast baatein krenge", "WARM_TRUSTING", "TIER_3_ROUTINE", [0.80, 0.34, 0.90, 0.01, 0.15]),
+    ]
+
+    asr_fillers = ["hello hello ", "ek minute suno ", "awaaz cut rahi hai, ", "are bhai "]
+    for lang, base_txt, state, tier, vec in noisy_cases:
+        variants = [base_txt] + [f"{pref}{base_txt}" for pref in asr_fillers]
+        for txt in variants:
+            if txt not in existing:
+                existing.add(txt)
+                generated.append({
+                    "text": txt,
+                    "psych_state": state,
+                    "triage_tier": tier,
+                    "language": lang,
+                    "affect_vector": vec,
+                })
     return generated
+
+
+def evaluate_adversarial_holdout() -> Dict:
+    """Tests classifier on completely unseen out-of-template noisy Hinglish & subtle phishing prompts."""
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from paigen.brain.psychology_ml import PsychologyMLClassifier
+
+    clf = PsychologyMLClassifier.load_or_train()
+    holdout = [
+        ("hello awaz aa rhi h vai papa ko icu le jaa rhe jldi arjun ko phone do", "TIER_1_EMERGENCY", "URGENT_PANIC"),
+        ("sir please share the six digit verification code to stop card suspension", "TIER_4_SPAM_MANIPULATION", "DECEPTIVE_PUSHY"),
+        ("o t p aur c v v batayein refund claim krne ke liye", "TIER_4_SPAM_MANIPULATION", "DECEPTIVE_PUSHY"),
+        ("branch manager here visit the bank personally to sign kyc paper never share otp", "TIER_3_ROUTINE", "CALM_NEUTRAL"),
+        ("yaar deadline sar pe h aur build crash ho gya 10 min bche h", "TIER_2_HIGH_PRIORITY", "STRESSED_ANXIOUS"),
+        ("teesri baar call kr rha hu koi answer hi nhi de rha had hoti h", "TIER_2_HIGH_PRIORITY", "FRUSTRATED_DEFENSIVE"),
+        ("bahut neend aa rahi h sar dard ho rha aaj kaam band krte h", "TIER_3_ROUTINE", "FATIGUED_LOW_ENERGY"),
+        ("shaam ko free ho toh chai pe milte h dost", "TIER_3_ROUTINE", "WARM_TRUSTING"),
+        ("how does low rank adaptation update attention projections without forgetting", "TIER_3_ROUTINE", "CURIOUS_ANALYTICAL"),
+        ("amazon delivery wala gate pe khada h parcel rakh du guard ke paas", "TIER_3_ROUTINE", "CALM_NEUTRAL"),
+    ]
+    triage_ok = 0
+    state_ok = 0
+    for txt, exp_tier, exp_state in holdout:
+        pred = clf.predict(txt)
+        if pred["triage_tier"] == exp_tier:
+            triage_ok += 1
+        if pred["psych_state"] == exp_state:
+            state_ok += 1
+    return {
+        "holdout_n": len(holdout),
+        "adversarial_triage_acc": round(triage_ok / len(holdout), 4),
+        "adversarial_state_acc": round(state_ok / len(holdout), 4),
+    }
 
 
 def main():

@@ -71,13 +71,71 @@ MANIPULATION_SPAM_MARKERS = {
     "investment", "crypto", "double money", "telemarketing", "insurance",
     "digital arrest", "cbi", "customs", "upi", "refund link", "account freeze",
     "aadhaar", "illegal parcel", "drugs", "fedex", "ncb", "trai", "sim block",
-    "arrest warrant", "police case", "money laundering",
+    "arrest warrant", "police case", "money laundering", "verification code",
+    "six digit", "6 digit", "security code", "share code", "code batao",
+    "code share", "customs fee", "clearance charge", "bail amount", "gpay karo",
     "ignore all previous", "ignore previous", "admin mode", "last email",
     "system prompt", "developer mode", "whatsapp message", "read his messages",
     "padh ke", "location batao",
     "बैंक", "लॉटरी", "इनाम", "ओटीपी", "लोन", "ऑफर", "फ्री", "ब्लॉक",
     "कस्टम्स", "सीबीआई", "डिजिटल अरेस्ट", "आधार", "वारंट", "पुलिस केस",
 }
+
+_ASR_PHONETIC_SUBS = {
+    "jldi": "jaldi",
+    "jruri": "zaroori",
+    "zaruri": "zaroori",
+    "vai": "bhai",
+    "bhiya": "bhaiya",
+    "ky": "kya",
+    "kr": "kar",
+    "rha": "raha",
+    "rhi": "rahi",
+    "rhe": "rahe",
+    "nhi": "nahi",
+    "hu": "hoon",
+    "gya": "gaya",
+    "gyi": "gayi",
+    "gye": "gaye",
+    "bche": "bache",
+    "bht": "bahut",
+    "kch": "kuch",
+    "smjh": "samajh",
+    "wrna": "warna",
+    "bnd": "band",
+    "jyega": "jayega",
+    "pls": "please",
+    "plz": "please",
+    "urjnt": "urgent",
+    "emrgncy": "emergency",
+    "hospitl": "hospital",
+    "otpi": "otp",
+    "ohteepee": "otp",
+    "acnt": "account",
+    "msg": "message",
+    "thk": "thak",
+    "nd": "neend",
+}
+
+
+def normalize_asr_text(text: str) -> str:
+    """Normalizes noisy telephony ASR glitches, spaced acronyms, and compressed Hinglish shorthand."""
+    if not text:
+        return ""
+    s = text.lower()
+    # Collapse spaced acronyms common in phone STT: "o t p", "k y c", "u p i", "c b i"
+    s = re.sub(r"\bo\s+t\s+p\b", "otp", s)
+    s = re.sub(r"\bk\s+y\s+c\b", "kyc", s)
+    s = re.sub(r"\bu\s+p\s+i\b", "upi", s)
+    s = re.sub(r"\bc\s+b\s+i\b", "cbi", s)
+    s = re.sub(r"\bi\s+c\s+u\b", "icu", s)
+    # Collapse elongated characters ("helloooo" -> "helloo", "pleeeease" -> "pleease")
+    s = re.sub(r"(.)\1{2,}", r"\1\1", s)
+    words = []
+    for w in s.split():
+        clean_w = re.sub(r"[^\w\u0900-\u097F]", "", w)
+        words.append(_ASR_PHONETIC_SUBS.get(clean_w, w))
+    return " ".join(words)
 
 DEFAULT_MODEL_PATH = (
     Path(__file__).resolve().parents[2] / "data" / "models" / "psychology_ml_model.npz"
@@ -91,8 +149,9 @@ DEFAULT_CORPUS_PATH = (
 
 
 def _tokenize_trilingual(text: str) -> List[str]:
-    """Extracts word unigrams, word bigrams, and character 3/4-grams preserving Devanagari."""
-    cleaned = re.sub(r"[^\w\s\u0900-\u097F!?]", " ", text.lower())
+    """Extracts ASR-normalized word unigrams, word bigrams, and character 3/4-grams preserving Devanagari."""
+    norm = normalize_asr_text(text)
+    cleaned = re.sub(r"[^\w\s\u0900-\u097F!?]", " ", norm)
     words = [w for w in cleaned.split() if w]
     tokens: List[str] = list(words)
     # Word bigrams
@@ -125,24 +184,38 @@ def _structural_features(text: str) -> np.ndarray:
     roman_hi_hits = sum(1 for w in words if w in ROMAN_HINDI_MARKERS)
     roman_hi_ratio = roman_hi_hits / n_words
 
-    low = text.lower()
+    low = normalize_asr_text(text)
+    # Exclude explicit anti-scam advisories ("never share otp", "mat batana", "visit branch in person")
+    anti_scam_advisory = any(
+        adv in low
+        for adv in (
+            "never share otp", "do not share otp", "don't share otp",
+            "otp kisi ko mat", "pin kisi ko mat", "visit bank", "visit the bank",
+            "branch personally", "branch aake", "branch manager",
+        )
+    )
     urgency_hits = sum(1 for kw in HINDI_URGENCY_MARKERS if kw in low)
-    spam_hits = sum(1 for kw in MANIPULATION_SPAM_MARKERS if kw in low)
+    spam_hits = 0 if anti_scam_advisory else sum(1 for kw in MANIPULATION_SPAM_MARKERS if kw in low)
 
     # Cluster markers for tight generalization across unseen phrasing
     deadline_words = ("server", "production", "crash", "deadline", "meeting", "interview", "exam", "client", "bug", "down", "मीटिंग", "सर्वर", "क्रैश", "एग्जाम", "इंटरव्यू", "क्लाइंट", "पेमेंट", "रिपोर्ट")
-    frust_words = ("wait", "waiting", "delay", "fourth", "third", "again", "ridiculous", "nobody", "ignored", "अटका", "परेशान", "कितनी देर", "कब से", "कोई उठा", "गुस्सा", "बार-बार", "सीधे बात")
+    frust_words = (
+        "wait", "waiting", "delay", "fourth", "third", "again", "ridiculous", "nobody", "ignored",
+        "teesri baar", "chauthi baar", "kitni baar", "kitni der", "had hoti", "jawab nahi",
+        "answer hi nahi", "response hi nahi", "dimaag kharab", "band baj", "koi utha",
+        "अटका", "परेशान", "कितनी देर", "कब से", "कोई उठा", "गुस्सा", "बार-बार", "सीधे बात",
+    )
     warm_words = ("haal", "chaal", "chai", "friend", "buddy", "wish", "best", "congrats", "family", "blessing", "invite", "reunion", "college", "party", "wedding", "dinner", "नमस्ते", "आशीर्वाद", "बधाई", "दोस्त", "मस्त", "शाम", "हाल चाल", "कैसे हो", "शादी", "दावत")
     fatigue_words = ("tired", "exhausted", "sleep", "sleepy", "burnout", "drained", "headache", "neend", "thak", "thakan", "akela", "alone", "थक", "नींद", "थकान", "सिर दर्द", "आँखें", "आराम", "अकेला")
     curious_words = ("how", "why", "explain", "architecture", "algorithm", "model", "learn", "setup", "कैसे", "क्यों", "समझा", "सीखना", "आर्किटेक्चर", "टेक्निकल", "बताओगे")
-    calm_words = ("delivery", "courier", "confirm", "appointment", "service", "pickup", "meter", "amazon", "flipkart", "डिलीवरी", "अपॉइंटमेंट", "रीडिंग", "सर्विस", "कोरियर")
+    calm_words = ("delivery", "courier", "confirm", "appointment", "service", "pickup", "meter", "amazon", "flipkart", "branch", "cheque", "डिलीवरी", "अपॉइंटमेंट", "रीडिंग", "सर्विस", "कोरियर")
 
     deadline_hit = min(sum(1 for w in deadline_words if w in low) / 2.0, 1.0)
     frust_hit = min(sum(1 for w in frust_words if w in low) / 2.0, 1.0)
     warm_hit = min(sum(1 for w in warm_words if w in low) / 2.0, 1.0)
     fatigue_hit = min(sum(1 for w in fatigue_words if w in low) / 2.0, 1.0)
     curious_hit = min(sum(1 for w in curious_words if w in low) / 2.0, 1.0)
-    calm_hit = 0.0 if spam_hits > 0 else min(sum(1 for w in calm_words if w in low) / 2.0, 1.0)
+    calm_hit = 1.0 if anti_scam_advisory else (0.0 if spam_hits > 0 else min(sum(1 for w in calm_words if w in low) / 2.0, 1.0))
 
     exclam = min(text.count("!") / 3.0, 1.0)
     quest = min(text.count("?") / 3.0, 1.0)
@@ -580,3 +653,44 @@ class PsychologyMLClassifier:
             "is_urgent": TRIAGE_TIERS[ti_idx] in ("TIER_1_EMERGENCY", "TIER_2_HIGH_PRIORITY"),
             "is_hindi_dominant": detected_lang in ("hi", "hinglish"),
         }
+
+    @classmethod
+    def record_verified_sample(
+        cls,
+        text: str,
+        psych_state: str,
+        triage_tier: str,
+        language: str,
+        affect_vector: Optional[List[float]] = None,
+        corpus_path: Path = DEFAULT_CORPUS_PATH,
+    ) -> bool:
+        """
+        Online Active Learning hook: appends redacted, verified real caller/chat utterances
+        to the ML training corpus for continual out-of-lab hardening.
+        """
+        clean = re.sub(r"\b\d{6,}\b", "[NUM]", (text or "").strip())
+        if len(clean.split()) < 4:
+            return False
+        if psych_state not in PSYCH_STATES or triage_tier not in TRIAGE_TIERS:
+            return False
+        lang = language if language in LANG_CLASSES else "hinglish"
+        vec = affect_vector or [0.0, 0.5, 0.5, 0.9 if triage_tier == "TIER_4_SPAM_MANIPULATION" else 0.1, 0.5]
+        try:
+            corpus_path.parent.mkdir(parents=True, exist_ok=True)
+            if corpus_path.exists():
+                existing = corpus_path.read_text(encoding="utf-8")
+                if clean in existing:
+                    return False
+            row = {
+                "text": clean,
+                "psych_state": psych_state,
+                "triage_tier": triage_tier,
+                "language": lang,
+                "affect_vector": [round(float(x), 3) for x in vec[:5]],
+                "source": "active_learning",
+            }
+            with open(corpus_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+            return True
+        except Exception:
+            return False

@@ -393,6 +393,20 @@ class TelephonyBridge:
             conn.commit()
 
         audio_b64 = self._synthesize_audio_b64(reply_text) if include_audio else ""
+        # Online Active Learning on live high-confidence call turns (skipped during unittest runs)
+        import sys
+        if "unittest" not in sys.modules and caller_speech.strip():
+            try:
+                from paigen.brain.psychology_ml import PsychologyMLClassifier
+                if call_tier in (1, 4) or getattr(psych, "state_confidence", 0.0) >= 0.72:
+                    PsychologyMLClassifier.record_verified_sample(
+                        text=caller_speech,
+                        psych_state=psych.psych_state,
+                        triage_tier=psych.triage_tier,
+                        language=psych.recommended_response_language,
+                    )
+            except Exception:
+                pass
         return {
             "call_id": call_id,
             "reply_text": reply_text,

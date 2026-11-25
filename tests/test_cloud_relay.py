@@ -191,8 +191,8 @@ class TestVercelCloudRelay(unittest.TestCase):
             )
             with urllib.request.urlopen(req_ver, timeout=4) as resp:
                 vdata = json.loads(resp.read().decode("utf-8"))
-                self.assertTrue(vdata.get("version_code", 0) >= 9)
-                self.assertEqual(vdata.get("version_name"), "5.3.1")
+                self.assertTrue(vdata.get("version_code", 0) >= 10)
+                self.assertEqual(vdata.get("version_name"), "5.3.2")
                 self.assertTrue(len(vdata.get("bundle_sha256", "")) == 64)
             req_bun = urllib.request.Request(
                 f"{self.base_url}/api/app/bundle",
@@ -209,6 +209,29 @@ class TestVercelCloudRelay(unittest.TestCase):
             loaded = load_cloud_config(config_path=cfg)
             self.assertEqual(loaded["url"], "https://paigen-ai-cloud.onrender.com")
             self.assertEqual(loaded["token"], "tok_abc")
+
+    def test_zero_loss_state_sync_restores_wiped_render_store(self):
+        vercel_api._MEM_KV.clear()
+        vercel_api._MEM_QUEUE.clear()
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {"PAIGEN_CLOUD_TOKEN": "sync_tok"}):
+            mirror_file = Path(td) / "cloud_state_mirror.json"
+            mirror_file.write_text(json.dumps({
+                "chat_feed": [{"id": "m1", "role": "user", "text": "Saved chat before Render restart", "origin": "mobile", "ts": 100.0}],
+                "calls": [{"caller_id": "+919988776655", "caller_name": "Priya", "timestamp": 100.0, "transcript": "Call persisted"}],
+                "overrides": {"language": "hi"},
+            }), encoding="utf-8")
+
+            worker = CloudUplinkWorker(cloud_url=self.base_url, cloud_token="sync_tok", poll_interval_sec=0.1)
+            worker.mirror_path = mirror_file
+            worker.step()  # Sees needs_state_restore=True -> hydrates wiped Render store
+
+            req_hist = urllib.request.Request(
+                f"{self.base_url}/api/chat/history?limit=10",
+                headers={"Authorization": "Bearer sync_tok"},
+            )
+            with urllib.request.urlopen(req_hist, timeout=4) as resp:
+                hdata = json.loads(resp.read().decode("utf-8"))
+                self.assertTrue(any("Saved chat before Render restart" in m["text"] for m in hdata.get("messages", [])))
 
 
 if __name__ == "__main__":

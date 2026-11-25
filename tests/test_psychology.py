@@ -83,6 +83,20 @@ class TestPsychologyML(unittest.TestCase):
         self.assertEqual(diag.dominant_mode, PersonaMode.TACTICAL_ADVISOR)
         self.assertEqual(diag.highest_urgency, InterventionUrgency.PASSIVE)
 
+    def test_noisy_asr_hinglish_and_benign_bank_advisory(self):
+        # Spaced OTP ASR glitch -> still caught as TIER_4 scam
+        scam_pred = self.clf.predict("Sir o t p aur c v v batayein refund claim krne ke liye")
+        self.assertEqual(scam_pred["triage_tier"], "TIER_4_SPAM_MANIPULATION")
+
+        # Anti-scam branch advisory -> must NOT false-positive as TIER_4 scam
+        benign_pred = self.clf.predict("Branch manager here, visit the bank personally to sign KYC paper and never share OTP")
+        self.assertEqual(benign_pred["triage_tier"], "TIER_3_ROUTINE")
+
+        # Shorthand Hinglish frustration -> TIER_2 + FRUSTRATED_DEFENSIVE
+        frust_pred = self.clf.predict("Teesri baar call kr rha hu koi answer hi nhi de rha had hoti h")
+        self.assertEqual(frust_pred["triage_tier"], "TIER_2_HIGH_PRIORITY")
+        self.assertEqual(frust_pred["psych_state"], "FRUSTRATED_DEFENSIVE")
+
 
 if __name__ == "__main__":
     unittest.main()
