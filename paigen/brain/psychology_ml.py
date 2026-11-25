@@ -273,7 +273,11 @@ class PsychologyMLClassifier:
         for t in texts:
             for tok in set(_tokenize_trilingual(t)):
                 df[tok] += 1
-        most_common = [tok for tok, _ in df.most_common(self.max_vocab)]
+        min_df = 2 if len(texts) >= 120 else 1
+        filtered = [(tok, cnt) for tok, cnt in df.most_common() if cnt >= min_df]
+        if len(filtered) < 200:
+            filtered = df.most_common()
+        most_common = [tok for tok, _ in filtered[: self.max_vocab]]
         self.vocab = {tok: idx for idx, tok in enumerate(most_common)}
         n_docs = max(len(texts), 1)
         idf = np.zeros(len(self.vocab), dtype=np.float32)
