@@ -1411,7 +1411,25 @@ class PaiGenApp:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+def _start_background_render_bridge():
+    """Auto-connects this PC to the Render Parent Server when cloud_bridge.json or env token exists."""
+    def _runner():
+        try:
+            from paigen.server.cloud_uplink import CloudUplinkWorker, DEFAULT_CLOUD_URL, load_cloud_config
+            cfg = load_cloud_config()
+            url = os.getenv("PAIGEN_CLOUD_URL", "").strip() or cfg.get("url", "")
+            tok = os.getenv("PAIGEN_CLOUD_TOKEN", "").strip() or cfg.get("token", "")
+            if not url and not tok:
+                return
+            worker = CloudUplinkWorker(cloud_url=url or DEFAULT_CLOUD_URL, cloud_token=tok)
+            worker.run_forever()
+        except Exception:
+            pass
+    threading.Thread(target=_runner, daemon=True).start()
+
+
 def main():
+    _start_background_render_bridge()
     root = tk.Tk()
     app  = PaiGenApp(root)
 
