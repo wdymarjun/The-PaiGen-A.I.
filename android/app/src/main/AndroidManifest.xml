@@ -33,6 +33,7 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <queries>
         <intent>
@@ -42,7 +43,7 @@
 
     <application
         android:allowBackup="true"
-        android:icon="@drawable/ic_paigen_launcher"
+        android:icon="@mipmap/ic_launcher"
         android:label="PaiGen AI"
         android:usesCleartextTraffic="true"
         android:theme="@style/PaiGenTheme">
@@ -69,11 +70,11 @@
             android:excludeFromRecents="true"
             android:theme="@style/PaiGenDialogTheme" />
 
-        <!-- Persistent PC Link & Call Guardian Foreground Service -->
+        <!-- Persistent PC Link & Call Guardian Foreground Service (Android 14+ compliant) -->
         <service
             android:name=".PaiGenBridgeService"
             android:exported="false"
-            android:foregroundServiceType="dataSync|microphone" />
+            android:foregroundServiceType="dataSync" />
 
         <!-- Android 10+ Native Call Screening Service -->
         <service

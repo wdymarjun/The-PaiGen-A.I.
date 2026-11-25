@@ -13,6 +13,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.provider.Settings;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
@@ -150,6 +151,9 @@ public class MainActivity extends Activity {
         ws.setDomStorageEnabled(true);
         ws.setMediaPlaybackRequiresUserGesture(false);
         ws.setAllowFileAccess(true);
+        ws.setAllowUniversalAccessFromFileURLs(true);
+        ws.setAllowFileAccessFromFileURLs(true);
+        ws.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         webView.addJavascriptInterface(new PaiGenNativeBridge(), "PaiGenNative");
         webView.setWebChromeClient(new WebChromeClient());
         webView.setWebViewClient(new WebViewClient() {
@@ -190,11 +194,14 @@ public class MainActivity extends Activity {
     }
 
     private void startBridgeService() {
-        Intent svc = new Intent(this, PaiGenBridgeService.class);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(svc);
-        } else {
-            startService(svc);
+        try {
+            Intent svc = new Intent(this, PaiGenBridgeService.class);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(svc);
+            } else {
+                startService(svc);
+            }
+        } catch (Exception ignored) {
         }
     }
 
@@ -216,7 +223,7 @@ public class MainActivity extends Activity {
             SharedPreferences prefs = getSharedPreferences("paigen_prefs", MODE_PRIVATE);
             try {
                 JSONObject o = new JSONObject();
-                o.put("server_url", prefs.getString("server_url", "http://10.203.190.80:8765"));
+                o.put("server_url", prefs.getString("server_url", "http://192.168.11.146:8765"));
                 o.put("auto_ask_calls", prefs.getBoolean("auto_ask_calls", true));
                 o.put("preferred_lang", prefs.getString("preferred_lang", "auto"));
                 return o.toString();
@@ -376,10 +383,42 @@ public class MainActivity extends Activity {
                 o.put("phone", checkSelfPermission(Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED);
                 o.put("answer_calls", checkSelfPermission(Manifest.permission.ANSWER_PHONE_CALLS) == PackageManager.PERMISSION_GRANTED);
                 o.put("overlay", Settings.canDrawOverlays(MainActivity.this));
+                PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+                o.put("battery_unrestricted", pm != null && pm.isIgnoringBatteryOptimizations(getPackageName()));
+                o.put("model", Build.MANUFACTURER + " " + Build.MODEL + " (Android " + Build.VERSION.RELEASE + ")");
                 return o.toString();
             } catch (Exception e) {
                 return "{}";
             }
+        }
+
+        @JavascriptInterface
+        public void requestBatteryOptimizationExemption() {
+            try {
+                Intent i = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + getPackageName()));
+                startActivity(i);
+            } catch (Exception ignored) {
+            }
+        }
+
+        @JavascriptInterface
+        public void requestFullScreenIntentPermission() {
+            if (Build.VERSION.SDK_INT >= 34) {
+                try {
+                    Intent i = new Intent("android.settings.MANAGE_APP_USE_FULL_SCREEN_INTENT", Uri.parse("package:" + getPackageName()));
+                    startActivity(i);
+                } catch (Exception e) {
+                    openAppDetailsSettings();
+                }
+            } else {
+                openAppDetailsSettings();
+            }
+        }
+
+        @JavascriptInterface
+        public void openAppDetailsSettings() {
+            Intent i = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()));
+            startActivity(i);
         }
 
         @JavascriptInterface

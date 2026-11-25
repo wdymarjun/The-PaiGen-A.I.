@@ -852,8 +852,21 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
     return ws
 
 
+@web.middleware
+async def cors_middleware(request: web.Request, handler):
+    """Allows cross-origin requests from the native Android APK WebView (file:// origin)."""
+    if request.method == "OPTIONS":
+        resp = web.Response(status=204)
+    else:
+        resp = await handler(request)
+    resp.headers["Access-Control-Allow-Origin"] = "*"
+    resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
+    return resp
+
+
 def create_gateway_app() -> web.Application:
-    app = web.Application(client_max_size=32 * 1024 * 1024)
+    app = web.Application(client_max_size=32 * 1024 * 1024, middlewares=[cors_middleware])
     app.router.add_get("/", handle_root)
     app.router.add_get("/ws", handle_ws)
     app.router.add_get("/api/ping", handle_ping)

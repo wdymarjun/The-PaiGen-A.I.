@@ -8,6 +8,7 @@ import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.ServiceInfo;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
@@ -46,7 +47,11 @@ public class PaiGenBridgeService extends Service {
         super.onCreate();
         ensureChannels();
         running = true;
-        startForeground(NOTIF_BG_ID, buildBgNotification());
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIF_BG_ID, buildBgNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+        } else {
+            startForeground(NOTIF_BG_ID, buildBgNotification());
+        }
         handler.post(heartbeatTask);
     }
 
@@ -110,7 +115,7 @@ public class PaiGenBridgeService extends Service {
     private boolean pingPcServer() {
         try {
             SharedPreferences prefs = getSharedPreferences("paigen_prefs", MODE_PRIVATE);
-            String baseUrl = prefs.getString("server_url", "http://10.203.190.80:8765");
+            String baseUrl = prefs.getString("server_url", "http://192.168.11.146:8765");
             URL url = new URL(baseUrl + "/api/ping");
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setConnectTimeout(2500);

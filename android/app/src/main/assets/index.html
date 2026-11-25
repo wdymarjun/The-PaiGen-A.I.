@@ -291,7 +291,7 @@
         <div class="card-hdr"><span class="card-title">PC Server & Call Rules</span></div>
         <div style="display:flex;flex-direction:column;gap:10px;">
           <label style="font-size:12px;color:var(--muted);">PC Gateway URL (Wi-Fi Local IP)</label>
-          <input id="cfgServerUrl" class="txt-input" value="http://10.203.190.80:8765">
+          <input id="cfgServerUrl" class="txt-input" value="http://192.168.11.146:8765">
           <label style="display:flex;align-items:center;gap:8px;font-size:13px;">
             <input type="checkbox" id="cfgAutoAsk" checked> Ask "Should I talk?" on incoming calls
           </label>
@@ -305,12 +305,15 @@
       </div>
 
       <div class="card">
-        <div class="card-hdr"><span class="card-title">Android Call & Overlay Permissions</span></div>
+        <div class="card-hdr"><span class="card-title">Vivo V29 / Android Permissions</span></div>
         <div id="permStatus" style="font-size:12px;color:var(--muted);margin-bottom:10px;">Checking permissions...</div>
         <div class="grid-2">
           <button class="btn btn-ghost btn-sm" onclick="grantOverlay()">Enable Overlay</button>
           <button class="btn btn-ghost btn-sm" onclick="grantCallScreen()">Set Call Screener</button>
+          <button class="btn btn-ghost btn-sm" onclick="grantBatteryUnrestricted()">Disable Battery Opt</button>
+          <button class="btn btn-ghost btn-sm" onclick="grantFullScreenCalls()">Full-Screen Calls</button>
         </div>
+        <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:8px;" onclick="openVivoSettings()">Vivo App Permissions & Auto-Start</button>
       </div>
     </section>
 
@@ -325,7 +328,7 @@
 
   <script>
     const hasNative = typeof window.PaiGenNative !== 'undefined';
-    let SERVER_URL = 'http://10.203.190.80:8765';
+    let SERVER_URL = 'http://192.168.11.146:8765';
     let AUTO_ASK = true;
     let PREF_LANG = 'auto';
     let isSpeaking = false;
@@ -910,11 +913,14 @@
       try {
         const p = JSON.parse(PaiGenNative.getPermissionStatusJson());
         document.getElementById('permStatus').innerText =
-          `Mic: ${p.mic ? 'OK' : 'NEEDED'} | Phone: ${p.phone ? 'OK' : 'NEEDED'} | Answer Calls: ${p.answer_calls ? 'OK' : 'NEEDED'} | Overlay: ${p.overlay ? 'OK' : 'TAP ENABLE'}`;
+          `${p.model || 'Android'}\nMic: ${p.mic ? 'OK' : 'NEEDED'} | Phone: ${p.phone ? 'OK' : 'NEEDED'} | Overlay: ${p.overlay ? 'OK' : 'TAP ENABLE'} | Battery: ${p.battery_unrestricted ? 'UNRESTRICTED' : 'RESTRICTED'}`;
       } catch (e) {}
     }
     function grantOverlay() { if (hasNative) PaiGenNative.requestOverlayPermission(); }
     function grantCallScreen() { if (hasNative) PaiGenNative.requestCallScreeningRole(); }
+    function grantBatteryUnrestricted() { if (hasNative && PaiGenNative.requestBatteryOptimizationExemption) PaiGenNative.requestBatteryOptimizationExemption(); }
+    function grantFullScreenCalls() { if (hasNative && PaiGenNative.requestFullScreenIntentPermission) PaiGenNative.requestFullScreenIntentPermission(); }
+    function openVivoSettings() { if (hasNative && PaiGenNative.openAppDetailsSettings) PaiGenNative.openAppDetailsSettings(); }
 
     loadConfig();
     pingServer();

@@ -174,9 +174,14 @@ class TestGatewayEndpoints(AioHTTPTestCase):
 
         stats_resp = await self.client.request("GET", "/api/pc/stats")
         self.assertEqual(stats_resp.status, 200)
+        self.assertEqual(stats_resp.headers.get("Access-Control-Allow-Origin"), "*")
         stats = await stats_resp.json()
         self.assertIn("hostname", stats)
         self.assertIn("screen_resolution", stats)
+
+        opt_resp = await self.client.request("OPTIONS", "/api/chat")
+        self.assertEqual(opt_resp.status, 204)
+        self.assertEqual(opt_resp.headers.get("Access-Control-Allow-Origin"), "*")
 
     @unittest_run_loop
     async def test_psychology_analyze_endpoint(self):
