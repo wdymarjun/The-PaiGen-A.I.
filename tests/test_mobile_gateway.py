@@ -91,6 +91,35 @@ class TestRemotePCController(unittest.TestCase):
         # Verify JPEG magic bytes FF D8
         self.assertEqual(buf[:2], b"\xff\xd8")
 
+    def test_differential_screen_capture_and_gestures(self):
+        buf1, sig1, meta1 = self.controller.get_screen_frame_if_changed(force=True)
+        self.assertIsInstance(buf1, bytes)
+        self.assertEqual(buf1[:2], b"\xff\xd8")
+        self.assertTrue(meta1.get("changed"))
+        self.assertIn("sw", meta1)
+        self.assertIn("sh", meta1)
+
+        with patch("paigen.mobile.remote_control.platform.system", return_value="Linux"), \
+             patch("pyautogui.click") as mock_click, \
+             patch("pyautogui.mouseDown") as mock_down, \
+             patch("pyautogui.mouseUp") as mock_up, \
+             patch("pyautogui.scroll") as mock_scroll:
+            r_clk = self.controller.execute_pc_input("click", 0.25, 0.75)
+            self.assertEqual(r_clk["status"], "success")
+            mock_click.assert_called_once()
+
+            r_dn = self.controller.execute_pc_input("mouse_down", 0.5, 0.5)
+            self.assertEqual(r_dn["status"], "success")
+            mock_down.assert_called_once()
+
+            r_up = self.controller.execute_pc_input("mouse_up", 0.6, 0.6)
+            self.assertEqual(r_up["status"], "success")
+            mock_up.assert_called_once()
+
+            r_scr = self.controller.execute_pc_input("scroll", 0.5, 0.5, delta=-240)
+            self.assertEqual(r_scr["status"], "success")
+            mock_scroll.assert_called_with(-240)
+
     @patch("ctypes.windll.user32.LockWorkStation", create=True)
     def test_lock_workstation(self, mock_lock):
         mock_lock.return_value = 1
@@ -311,6 +340,33 @@ class TestGatewayEndpoints(AioHTTPTestCase):
         st_data = await st_resp.json()
         self.assertEqual(st_data.get("status"), "success")
         self.assertIn("active", st_data.get("bridge", {}))
+
+    @unittest_run_loop
+    async def test_ws_binary_v2_screen_stream_and_input(self):
+        import struct
+        async with self.client.ws_connect("/ws") as ws:
+            hello = await ws.receive_json()
+            self.assertEqual(hello["type"], "connected")
+            self.assertEqual(hello["proto_max"], 2)
+
+            await ws.send_json({
+                "type": "stream_screen_start",
+                "proto": 2,
+                "fps": 30,
+                "quality": 50,
+                "max_width": 640,
+                "draw_cursor": True,
+            })
+            frame_msg = await ws.receive(timeout=4.0)
+            raw = frame_msg.data
+            self.assertIsInstance(raw, bytes)
+            self.assertGreater(len(raw), 17)
+            magic, seq, cap_ms, cx_u16, cy_u16, sw, sh, flags = struct.unpack("<2sIH4HB", raw[:17])
+            self.assertEqual(magic, b"PG")
+            self.assertGreaterEqual(seq, 1)
+            self.assertEqual(raw[17:19], b"\xff\xd8")
+
+            await ws.send_json({"type": "stream_screen_stop"})
 
 
 if __name__ == "__main__":

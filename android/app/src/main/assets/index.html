@@ -103,8 +103,13 @@
     .txt-input:focus { border-color: var(--cyan); }
 
     /* PC Screen Interactive Canvas */
-    .pc-screen-box { position: relative; border-radius: 12px; overflow: hidden; border: 1px solid var(--border); background: #020408; }
-    .pc-screen-img { width: 100%; display: block; object-fit: contain; cursor: crosshair; min-height: 160px; }
+    .pc-screen-box { position: relative; border-radius: 12px; overflow: hidden; border: 1px solid var(--border); background: #000000; touch-action: none; user-select: none; }
+    .pc-screen-canvas { width: 100%; display: block; min-height: 170px; background: #000000; touch-action: none; }
+    .pc-hud-overlay { position: absolute; top: 6px; left: 6px; right: 6px; display: flex; justify-content: space-between; pointer-events: none; z-index: 4; }
+    .pc-hud-chip { font-size: 9px; font-weight: 800; padding: 2px 7px; border-radius: 999px; background: rgba(0,0,0,0.78); color: #FFFFFF; border: 1px solid rgba(255,255,255,0.28); font-family: monospace; }
+    .seg-bar { display: flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 2px; gap: 2px; }
+    .seg-btn { flex: 1; border: none; background: transparent; color: var(--muted); font-size: 11px; font-weight: 700; padding: 5px 8px; border-radius: 8px; cursor: pointer; }
+    .seg-btn.active { background: #FFFFFF; color: #000000; }
     .grid-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
     .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
 
@@ -238,18 +243,32 @@
             <button class="btn btn-cyan btn-sm" onclick="refreshScreen()">Refresh</button>
           </div>
         </div>
-        <div class="pc-screen-box">
-          <img id="pcScreenImg" class="pc-screen-img" alt="Tap Live or Refresh to load PC Screen" onclick="onScreenTap(event)">
+        <div class="seg-bar" style="margin-bottom:8px;">
+          <button class="seg-btn active" id="btnModeTouch" onclick="setControlMode('touch')">👆 Direct Touch</button>
+          <button class="seg-btn" id="btnModeTrackpad" onclick="setControlMode('trackpad')">🖱 Trackpad Aim</button>
+          <button class="seg-btn" id="btnZoomReset" onclick="resetScreenZoom()">🔍 1.0x</button>
         </div>
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:11px;color:var(--muted);gap:6px;">
-          <span id="streamHintTxt">Auto-uses Direct Wi-Fi WS (&lt;40ms) on LAN or Render on 5G</span>
-          <select id="tapMode" style="background:var(--surface-2);color:#fff;border:1px solid var(--border);border-radius:8px;padding:3px 8px;font-size:11px;">
-            <option value="click">Left Click</option>
-            <option value="double_click">Double Click</option>
-            <option value="right_click">Right Click</option>
-            <option value="move">Move Cursor</option>
+        <div class="pc-screen-box" id="pcScreenBox">
+          <div class="pc-hud-overlay">
+            <span class="pc-hud-chip" id="pcTransportChip">IDLE</span>
+            <span class="pc-hud-chip" id="pcZoomChip">1.0x • 0,0</span>
+          </div>
+          <canvas id="pcScreenCanvas" class="pc-screen-canvas" width="960" height="600"></canvas>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:11px;color:var(--muted);gap:6px;flex-wrap:wrap;">
+          <select id="streamPreset" onchange="applyStreamPreset()" style="background:var(--surface-2);color:#fff;border:1px solid var(--border);border-radius:8px;padding:4px 8px;font-size:11px;">
+            <option value="fast">⚡ Ultra Fast (60 FPS)</option>
+            <option value="balanced" selected>⚖ Balanced (60 FPS)</option>
+            <option value="hd">💎 Crisp HD (30 FPS)</option>
+          </select>
+          <select id="tapMode" style="background:var(--surface-2);color:#fff;border:1px solid var(--border);border-radius:8px;padding:4px 8px;font-size:11px;">
+            <option value="click">Tap: Left Click</option>
+            <option value="double_click">Tap: Double Click</option>
+            <option value="right_click">Tap: Right Click</option>
+            <option value="move">Tap: Move Only</option>
           </select>
         </div>
+        <div id="streamHintTxt" style="font-size:10px;color:var(--muted);margin-top:6px;">Pinch to zoom 1-4x • 2-finger slide to scroll • Long-press = Right-Click • Slide = Drag</div>
       </div>
 
       <div class="card">
@@ -263,13 +282,16 @@
           <button class="btn btn-ghost btn-sm" onclick="pcInput('media_play_pause')">⏯ Media</button>
           <button class="btn btn-ghost btn-sm" onclick="pcAction('up')">🔊 Vol +</button>
           <button class="btn btn-ghost btn-sm" onclick="pcAction('down')">🔉 Vol -</button>
-          <button class="btn btn-ghost btn-sm" onclick="pcInput('key','','','alt+tab')">⇄ Alt+Tab</button>
-          <button class="btn btn-ghost btn-sm" onclick="pcInput('scroll_up')">⬆ Scroll</button>
-          <button class="btn btn-ghost btn-sm" onclick="pcInput('scroll_down')">⬇ Scroll</button>
-          <button class="btn btn-ghost btn-sm" onclick="pcInput('key','','','enter')">⏎ Enter</button>
+          <button class="btn btn-ghost btn-sm" onclick="pcInput('key',0.5,0.5,'alt+tab')">⇄ Alt+Tab</button>
+          <button class="btn btn-ghost btn-sm" onclick="pcInput('key',0.5,0.5,'esc')">⎋ Esc</button>
+          <button class="btn btn-ghost btn-sm" onclick="pcInput('key',0.5,0.5,'backspace')">⌫ Bksp</button>
+          <button class="btn btn-ghost btn-sm" onclick="pcInput('key',0.5,0.5,'enter')">⏎ Enter</button>
+          <button class="btn btn-ghost btn-sm" onclick="pcInput('key',0.5,0.5,'win')">⊞ Win</button>
+          <button class="btn btn-ghost btn-sm" onclick="pcInput('key',0.5,0.5,'ctrl+c')">⧉ Copy</button>
+          <button class="btn btn-ghost btn-sm" onclick="pcInput('key',0.5,0.5,'ctrl+v')">📋 Paste</button>
         </div>
         <div class="input-row" style="margin-top:10px;">
-          <input id="pcTypeText" class="txt-input" placeholder="Type text onto PC...">
+          <input id="pcTypeText" class="txt-input" placeholder="Type text onto PC (Hindi/Eng)..." onkeydown="if(event.key==='Enter') sendTypeToPc()">
           <button class="btn btn-cyan btn-sm" onclick="sendTypeToPc()">Type</button>
         </div>
       </div>
@@ -538,7 +560,7 @@
         const match = document.querySelector(`.nav-btn[data-tab="${id}"]`);
         if (match) match.classList.add('active');
       }
-      if (id === 'tab-pc') refreshScreen();
+      if (id === 'tab-pc') { connectLanWs(); refreshScreen(); }
       if (id === 'tab-vault') loadVault();
       if (id === 'tab-mind') { refreshPermissions(); loadPcAudioDevices(); loadCloudLogs(); refreshAppUpdateInfo(); }
     }
@@ -1021,40 +1043,232 @@
       switchTab('tab-vault');
     }
 
-    // ─── 6. Remote PC Controls ─────────────────────────────────────────────────
-    function refreshScreen() {
-      const img = document.getElementById('pcScreenImg');
-      const tokParam = CLOUD_TOKEN ? '&token=' + encodeURIComponent(CLOUD_TOKEN) : '';
-      const isCloud = SERVER_URL.startsWith('https://') || SERVER_URL.includes('onrender.com') || SERVER_URL.includes('vercel.app') || !!tokParam;
-      img.src = SERVER_URL + '/api/screen?t=' + Date.now() + tokParam;
-      if (isCloud) {
-        fetch(SERVER_URL + '/api/pc/input', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ input_type: 'capture_screen' })
-        }).catch(() => {}).finally(() => {
-          img.src = SERVER_URL + '/api/screen?t=' + Date.now() + tokParam;
-        });
-      }
-    }
-
+    // ─── 6. Remote PC Controls (Zero-Lag Canvas + Touch/Trackpad/Zoom) ────────
     let PC_LAN_IP = '';
     let PC_GW_PORT = 8765;
     let lanWs = null;
+    let wsReconnectTimer = null;
     let liveStreamActive = false;
+    let renderWatchLoopId = 0;
     let frameCounter = 0;
     let fpsTimer = null;
     let lastPingMs = null;
+    let lastCapMs = 0;
+
+    // Viewport, cursor & gesture state
+    let pcResW = 1920, pcResH = 1200;
+    let curNormX = 0.5, curNormY = 0.5;
+    let viewZoom = 1.0, viewPanX = 0.0, viewPanY = 0.0;
+    let controlMode = 'touch'; // 'touch' or 'trackpad'
+    let lastBitmap = null;
+    let decodingBlob = false;
+    let queuedBlob = null;
+    let tapRipples = [];
+
+    const STREAM_PRESETS = {
+      fast:     { fps: 60, quality: 45, max_width: 854 },
+      balanced: { fps: 60, quality: 60, max_width: 1080 },
+      hd:       { fps: 30, quality: 78, max_width: 1440 }
+    };
+
+    function clamp01(v) { return Math.max(0, Math.min(1, v)); }
+
+    function setControlMode(mode) {
+      controlMode = mode === 'trackpad' ? 'trackpad' : 'touch';
+      document.getElementById('btnModeTouch').classList.toggle('active', controlMode === 'touch');
+      document.getElementById('btnModeTrackpad').classList.toggle('active', controlMode === 'trackpad');
+      document.getElementById('streamHintTxt').innerText = controlMode === 'trackpad'
+        ? 'Trackpad: 1-finger glide = move • Tap = click • 2-finger tap = right-click • 2-finger slide = scroll'
+        : 'Direct Touch: Tap = click • Double-tap = dbl-click • Long-press = right-click • Slide = drag • Pinch = zoom';
+      scheduleCanvasDraw();
+    }
+
+    function resetScreenZoom() {
+      viewZoom = 1.0; viewPanX = 0.0; viewPanY = 0.0;
+      updateZoomChip();
+      scheduleCanvasDraw();
+    }
+
+    function updateZoomChip() {
+      const px = Math.round(curNormX * pcResW);
+      const py = Math.round(curNormY * pcResH);
+      const zBtn = document.getElementById('btnZoomReset');
+      const chip = document.getElementById('pcZoomChip');
+      if (zBtn) zBtn.innerText = `🔍 ${viewZoom.toFixed(1)}x`;
+      if (chip) chip.innerText = `${viewZoom.toFixed(1)}x • ${px},${py}`;
+    }
+
+    function applyZoomClamp() {
+      viewZoom = Math.max(1.0, Math.min(4.0, viewZoom));
+      const maxPan = Math.max(0, 1.0 - 1.0 / viewZoom);
+      viewPanX = Math.max(0, Math.min(maxPan, viewPanX));
+      viewPanY = Math.max(0, Math.min(maxPan, viewPanY));
+      updateZoomChip();
+    }
+
+    function clientToPcNorm(clientX, clientY) {
+      const cvs = document.getElementById('pcScreenCanvas');
+      const rect = cvs.getBoundingClientRect();
+      if (!rect.width || !rect.height) return [0.5, 0.5];
+      const fx = clamp01((clientX - rect.left) / rect.width);
+      const fy = clamp01((clientY - rect.top) / rect.height);
+      return [clamp01(viewPanX + fx / viewZoom), clamp01(viewPanY + fy / viewZoom)];
+    }
+
+    let drawScheduled = false;
+    function scheduleCanvasDraw() {
+      if (drawScheduled) return;
+      drawScheduled = true;
+      requestAnimationFrame(drawPcCanvas);
+    }
+
+    function drawPcCanvas() {
+      drawScheduled = false;
+      const cvs = document.getElementById('pcScreenCanvas');
+      if (!cvs) return;
+      const cctx = cvs.getContext('2d');
+      const w = cvs.width, h = cvs.height;
+      cctx.clearRect(0, 0, w, h);
+
+      if (lastBitmap) {
+        const bw = lastBitmap.width, bh = lastBitmap.height;
+        const sx = viewPanX * bw;
+        const sy = viewPanY * bh;
+        const sw = bw / viewZoom;
+        const sh = bh / viewZoom;
+        cctx.imageSmoothingEnabled = viewZoom < 2.2;
+        cctx.drawImage(lastBitmap, sx, sy, sw, sh, 0, 0, w, h);
+      } else {
+        cctx.fillStyle = '#0A0A0A';
+        cctx.fillRect(0, 0, w, h);
+        cctx.fillStyle = '#888888';
+        cctx.font = 'bold 18px sans-serif';
+        cctx.textAlign = 'center';
+        cctx.fillText('Tap ⚡ Live or Refresh to connect PC Screen', w / 2, h / 2);
+      }
+
+      // Draw crisp monochrome cursor reticle in Trackpad mode or when zoomed
+      if (controlMode === 'trackpad' || viewZoom > 1.05) {
+        const vx = (curNormX - viewPanX) * viewZoom * w;
+        const vy = (curNormY - viewPanY) * viewZoom * h;
+        if (vx >= -10 && vx <= w + 10 && vy >= -10 && vy <= h + 10) {
+          cctx.save();
+          cctx.strokeStyle = '#FFFFFF';
+          cctx.lineWidth = 2;
+          cctx.shadowColor = '#000000';
+          cctx.shadowBlur = 4;
+          cctx.beginPath(); cctx.arc(vx, vy, 9, 0, Math.PI * 2); cctx.stroke();
+          cctx.fillStyle = '#FFFFFF';
+          cctx.beginPath(); cctx.arc(vx, vy, 2.5, 0, Math.PI * 2); cctx.fill();
+          cctx.restore();
+        }
+      }
+
+      // Draw active tap/click ripples
+      const now = performance.now();
+      if (tapRipples.length) {
+        tapRipples = tapRipples.filter(rp => now - rp.t < 320);
+        tapRipples.forEach(rp => {
+          const prog = (now - rp.t) / 320;
+          const vx = (rp.nx - viewPanX) * viewZoom * w;
+          const vy = (rp.ny - viewPanY) * viewZoom * h;
+          cctx.save();
+          cctx.strokeStyle = `rgba(255,255,255,${(1 - prog).toFixed(2)})`;
+          cctx.lineWidth = rp.right ? 3 : 2;
+          cctx.beginPath();
+          cctx.arc(vx, vy, 6 + prog * (rp.right ? 22 : 16), 0, Math.PI * 2);
+          cctx.stroke();
+          cctx.restore();
+        });
+        if (tapRipples.length) scheduleCanvasDraw();
+      }
+    }
+
+    function enqueueScreenBlob(blob) {
+      if (decodingBlob) {
+        queuedBlob = blob; // drop stale intermediate frame -> zero backlog latency
+        return;
+      }
+      decodingBlob = true;
+      const doneBitmap = (bmp) => {
+        if (lastBitmap && lastBitmap.close) try { lastBitmap.close(); } catch (e) {}
+        lastBitmap = bmp;
+        const cvs = document.getElementById('pcScreenCanvas');
+        if (cvs && bmp.width && bmp.height) {
+          if (cvs.width !== bmp.width || cvs.height !== bmp.height) {
+            cvs.width = bmp.width;
+            cvs.height = bmp.height;
+            cvs.style.aspectRatio = `${bmp.width} / ${bmp.height}`;
+          }
+        }
+        decodingBlob = false;
+        scheduleCanvasDraw();
+        if (queuedBlob) {
+          const next = queuedBlob;
+          queuedBlob = null;
+          enqueueScreenBlob(next);
+        }
+      };
+
+      if (typeof createImageBitmap === 'function') {
+        createImageBitmap(blob).then(doneBitmap).catch(() => {
+          decodingBlob = false;
+          queuedBlob = null;
+        });
+      } else {
+        const img = new Image();
+        const url = URL.createObjectURL(blob);
+        img.onload = () => { URL.revokeObjectURL(url); doneBitmap(img); };
+        img.onerror = () => { URL.revokeObjectURL(url); decodingBlob = false; };
+        img.src = url;
+      }
+    }
+
+    function spawnRipple(nx, ny, right = false) {
+      tapRipples.push({ nx, ny, right, t: performance.now() });
+      scheduleCanvasDraw();
+    }
+
+    async function refreshScreen() {
+      const tokParam = CLOUD_TOKEN ? '&token=' + encodeURIComponent(CLOUD_TOKEN) : '';
+      const isCloud = SERVER_URL.startsWith('https://') || SERVER_URL.includes('onrender.com') || SERVER_URL.includes('vercel.app') || !!tokParam;
+      try {
+        const r = await fetch(SERVER_URL + '/api/screen?watch=1&t=' + Date.now() + tokParam);
+        if (r.ok) {
+          frameCounter++;
+          enqueueScreenBlob(await r.blob());
+        }
+        if (isCloud && !liveStreamActive) {
+          await fetch(SERVER_URL + '/api/pc/input', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ input_type: 'capture_screen' })
+          }).catch(() => {});
+          const r2 = await fetch(SERVER_URL + '/api/screen?watch=1&t=' + Date.now() + tokParam);
+          if (r2.ok) enqueueScreenBlob(await r2.blob());
+        }
+      } catch (e) {}
+    }
+
+    function getPresetCfg() {
+      const sel = document.getElementById('streamPreset');
+      return STREAM_PRESETS[(sel && sel.value) || 'balanced'] || STREAM_PRESETS.balanced;
+    }
+
+    function applyStreamPreset() {
+      if (lanWs && lanWs.readyState === WebSocket.OPEN && liveStreamActive) {
+        const cfg = getPresetCfg();
+        lanWs.send(JSON.stringify({ type: 'stream_screen_config', proto: 2, draw_cursor: true, ...cfg }));
+      }
+    }
 
     function connectLanWs(onOpenCb) {
-      if (!PC_LAN_IP) {
-        if (SERVER_URL.startsWith('http://')) {
-          try {
-            const u = new URL(SERVER_URL);
-            PC_LAN_IP = u.hostname;
-            PC_GW_PORT = u.port || 8765;
-          } catch (e) {}
-        }
+      if (!PC_LAN_IP && SERVER_URL.startsWith('http://')) {
+        try {
+          const u = new URL(SERVER_URL);
+          PC_LAN_IP = u.hostname;
+          PC_GW_PORT = u.port || 8765;
+        } catch (e) {}
       }
       if (!PC_LAN_IP) return false;
       if (lanWs && lanWs.readyState === WebSocket.OPEN) {
@@ -1064,8 +1278,9 @@
       if (lanWs && lanWs.readyState === WebSocket.CONNECTING) return true;
       try {
         lanWs = new WebSocket(`ws://${PC_LAN_IP}:${PC_GW_PORT}/ws`);
-        lanWs.binaryType = 'blob';
+        lanWs.binaryType = 'arraybuffer';
         lanWs.onopen = () => {
+          document.getElementById('pcTransportChip').innerText = 'LAN WS';
           lanWs.send(JSON.stringify({ type: 'ping', client_ts: performance.now() }));
           if (onOpenCb) onOpenCb();
         };
@@ -1080,17 +1295,32 @@
             return;
           }
           frameCounter++;
-          const img = document.getElementById('pcScreenImg');
-          const oldUrl = img.dataset.objUrl;
-          const nextUrl = URL.createObjectURL(ev.data);
-          img.dataset.objUrl = nextUrl;
-          img.onload = () => { if (oldUrl) URL.revokeObjectURL(oldUrl); };
-          img.src = nextUrl;
+          const buf = ev.data;
+          let jpegBlob = null;
+          if (buf.byteLength > 17) {
+            const view = new DataView(buf);
+            if (view.getUint8(0) === 0x50 && view.getUint8(1) === 0x47) {
+              // Binary v2 header: 'PG' + seq(4) + cap_ms(2) + cx(2) + cy(2) + sw(2) + sh(2) + flags(1)
+              lastCapMs = view.getUint16(6, true);
+              curNormX = view.getUint16(8, true) / 65535.0;
+              curNormY = view.getUint16(10, true) / 65535.0;
+              pcResW = view.getUint16(12, true) || pcResW;
+              pcResH = view.getUint16(14, true) || pcResH;
+              updateZoomChip();
+              jpegBlob = new Blob([new Uint8Array(buf, 17)], { type: 'image/jpeg' });
+            }
+          }
+          if (!jpegBlob) jpegBlob = new Blob([buf], { type: 'image/jpeg' });
+          enqueueScreenBlob(jpegBlob);
         };
         lanWs.onclose = () => {
           lanWs = null;
           if (liveStreamActive) {
+            document.getElementById('pcTransportChip').innerText = 'RENDER';
             document.getElementById('streamTelemetryPill').innerText = 'Render Fallback';
+            startRenderWatchLoop();
+          } else {
+            document.getElementById('pcTransportChip').innerText = 'IDLE';
           }
         };
         lanWs.onerror = () => {
@@ -1103,11 +1333,30 @@
       }
     }
 
+    async function startRenderWatchLoop() {
+      const loopId = ++renderWatchLoopId;
+      const tokParam = CLOUD_TOKEN ? '&token=' + encodeURIComponent(CLOUD_TOKEN) : '';
+      while (liveStreamActive && renderWatchLoopId === loopId) {
+        if (lanWs && lanWs.readyState === WebSocket.OPEN) return;
+        const t0 = performance.now();
+        try {
+          const r = await fetch(SERVER_URL + '/api/screen?watch=1&t=' + Date.now() + tokParam);
+          if (r.ok) {
+            frameCounter++;
+            lastPingMs = Math.round(performance.now() - t0);
+            enqueueScreenBlob(await r.blob());
+          }
+        } catch (e) {}
+        await new Promise(res => setTimeout(res, 180));
+      }
+    }
+
     function toggleAutoScreen() {
       const btn = document.getElementById('btnAutoScreen');
       const pill = document.getElementById('streamTelemetryPill');
       if (liveStreamActive || autoScreenTimer) {
         liveStreamActive = false;
+        renderWatchLoopId++;
         if (autoScreenTimer) { clearInterval(autoScreenTimer); autoScreenTimer = null; }
         if (fpsTimer) { clearInterval(fpsTimer); fpsTimer = null; }
         if (lanWs && lanWs.readyState === WebSocket.OPEN) {
@@ -1116,6 +1365,7 @@
         btn.innerText = '⚡ Live: OFF';
         btn.className = 'btn btn-emerald btn-sm';
         pill.innerText = 'Idle';
+        document.getElementById('pcTransportChip').innerText = 'IDLE';
         return;
       }
 
@@ -1125,58 +1375,254 @@
       btn.className = 'btn btn-rose btn-sm';
       pill.innerText = 'Connecting...';
 
+      const cfg = getPresetCfg();
       const startedLan = connectLanWs(() => {
         if (lanWs && lanWs.readyState === WebSocket.OPEN && liveStreamActive) {
-          lanWs.send(JSON.stringify({ type: 'stream_screen_start', fps: 60, quality: 55, max_width: 960 }));
+          document.getElementById('pcTransportChip').innerText = 'LAN WS';
+          lanWs.send(JSON.stringify({ type: 'stream_screen_start', proto: 2, draw_cursor: true, ...cfg }));
           lanWs.send(JSON.stringify({ type: 'ping', client_ts: performance.now() }));
         }
       });
 
       if (!startedLan) {
-        refreshScreen();
-        autoScreenTimer = setInterval(refreshScreen, 900);
+        document.getElementById('pcTransportChip').innerText = 'RENDER';
         pill.innerText = 'Render Cloud';
+        startRenderWatchLoop();
       } else {
-        // Fallback polling only if LAN WebSocket fails to open within 1.5s
         setTimeout(() => {
-          if (liveStreamActive && (!lanWs || lanWs.readyState !== WebSocket.OPEN) && !autoScreenTimer) {
-            refreshScreen();
-            autoScreenTimer = setInterval(refreshScreen, 900);
+          if (liveStreamActive && (!lanWs || lanWs.readyState !== WebSocket.OPEN)) {
+            document.getElementById('pcTransportChip').innerText = 'RENDER';
             pill.innerText = 'Render Cloud';
+            startRenderWatchLoop();
           }
-        }, 1500);
+        }, 1200);
       }
 
       fpsTimer = setInterval(() => {
         if (!liveStreamActive) return;
         if (lanWs && lanWs.readyState === WebSocket.OPEN) {
           lanWs.send(JSON.stringify({ type: 'ping', client_ts: performance.now() }));
-          pill.innerText = `${frameCounter} FPS • ${lastPingMs || '--'} ms`;
+          pill.innerText = `${frameCounter} FPS • ${lastPingMs || '--'}ms`;
+          frameCounter = 0;
+        } else {
+          pill.innerText = `${frameCounter} FPS • ${lastPingMs || '--'}ms (5G)`;
           frameCounter = 0;
         }
       }, 1000);
     }
 
-    async function onScreenTap(ev) {
-      const img = document.getElementById('pcScreenImg');
-      const rect = img.getBoundingClientRect();
-      const xNorm = (ev.clientX - rect.left) / rect.width;
-      const yNorm = (ev.clientY - rect.top) / rect.height;
-      const mode = document.getElementById('tapMode').value;
-      await pcInput(mode, xNorm, yNorm);
-      if (!liveStreamActive) setTimeout(refreshScreen, 250);
+    // Coalesced high-frequency move queue so touch moves never flood WebSocket
+    let pendingMovePayload = null;
+    let moveRafActive = false;
+    function sendCoalescedMove(payload) {
+      pendingMovePayload = payload;
+      if (moveRafActive) return;
+      moveRafActive = true;
+      requestAnimationFrame(() => {
+        moveRafActive = false;
+        const p = pendingMovePayload;
+        pendingMovePayload = null;
+        if (p) pcInput(p.type, p.x, p.y, '', '', 0);
+      });
     }
 
-    async function pcInput(inputType, xNorm = 0.5, yNorm = 0.5, key = '', text = '') {
+    // Touch & mouse gesture binding for accuracy
+    (function setupScreenGestures() {
+      const cvs = document.getElementById('pcScreenCanvas');
+      if (!cvs) return;
+      let gesture = null;
+      let lastTapTime = 0, lastTapX = 0, lastTapY = 0;
+      let longPressTimer = null;
+
+      function clearLongPress() {
+        if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+      }
+
+      function pinchDist(t0, t1) {
+        return Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+      }
+
+      cvs.addEventListener('touchstart', (ev) => {
+        ev.preventDefault();
+        clearLongPress();
+        const ts = ev.touches;
+        if (ts.length === 2) {
+          const midX = (ts[0].clientX + ts[1].clientX) * 0.5;
+          const midY = (ts[0].clientY + ts[1].clientY) * 0.5;
+          gesture = {
+            kind: 'two',
+            startDist: pinchDist(ts[0], ts[1]),
+            startZoom: viewZoom,
+            startPanX: viewPanX,
+            startPanY: viewPanY,
+            lastMidX: midX,
+            lastMidY: midY,
+            startTime: performance.now(),
+            moved: false,
+            scrollAccum: 0
+          };
+          return;
+        }
+        if (ts.length === 1) {
+          const t = ts[0];
+          const [nx, ny] = clientToPcNorm(t.clientX, t.clientY);
+          gesture = {
+            kind: 'one',
+            startX: t.clientX,
+            startY: t.clientY,
+            lastX: t.clientX,
+            lastY: t.clientY,
+            startNx: nx,
+            startNy: ny,
+            moved: false,
+            draggingPc: false,
+            longFired: false
+          };
+          longPressTimer = setTimeout(() => {
+            if (gesture && gesture.kind === 'one' && !gesture.moved) {
+              gesture.longFired = true;
+              const tx = controlMode === 'trackpad' ? curNormX : gesture.startNx;
+              const ty = controlMode === 'trackpad' ? curNormY : gesture.startNy;
+              spawnRipple(tx, ty, true);
+              pcInput('right_click', tx, ty);
+            }
+          }, 440);
+        }
+      }, { passive: false });
+
+      cvs.addEventListener('touchmove', (ev) => {
+        ev.preventDefault();
+        const ts = ev.touches;
+        if (!gesture) return;
+        if (ts.length === 2 && gesture.kind === 'two') {
+          const dist = pinchDist(ts[0], ts[1]);
+          const midX = (ts[0].clientX + ts[1].clientX) * 0.5;
+          const midY = (ts[0].clientY + ts[1].clientY) * 0.5;
+          const dMidY = midY - gesture.lastMidY;
+          const dMidX = midX - gesture.lastMidX;
+          if (Math.hypot(midX - gesture.lastMidX, dMidY) > 3 || Math.abs(dist - gesture.startDist) > 12) {
+            gesture.moved = true;
+          }
+          const scaleRatio = dist / Math.max(10, gesture.startDist);
+          if (Math.abs(scaleRatio - 1.0) > 0.06 || viewZoom > 1.02) {
+            const oldZ = viewZoom;
+            viewZoom = Math.max(1.0, Math.min(4.0, gesture.startZoom * scaleRatio));
+            const rect = cvs.getBoundingClientRect();
+            const fx = clamp01((midX - rect.left) / rect.width);
+            const fy = clamp01((midY - rect.top) / rect.height);
+            viewPanX += fx * (1 / oldZ - 1 / viewZoom) - (dMidX / rect.width) / viewZoom;
+            viewPanY += fy * (1 / oldZ - 1 / viewZoom) - (dMidY / rect.height) / viewZoom;
+            applyZoomClamp();
+            scheduleCanvasDraw();
+          } else if (Math.abs(dMidY) > 2) {
+            // Two-finger vertical scroll on PC screen
+            const wheelDelta = Math.round(dMidY * 5.0);
+            if (wheelDelta !== 0) pcInput('scroll', curNormX, curNormY, '', '', wheelDelta);
+          }
+          gesture.lastMidX = midX;
+          gesture.lastMidY = midY;
+          return;
+        }
+        if (ts.length === 1 && gesture.kind === 'one') {
+          const t = ts[0];
+          const totalDist = Math.hypot(t.clientX - gesture.startX, t.clientY - gesture.startY);
+          const dx = t.clientX - gesture.lastX;
+          const dy = t.clientY - gesture.lastY;
+          gesture.lastX = t.clientX;
+          gesture.lastY = t.clientY;
+          if (totalDist > 9) {
+            gesture.moved = true;
+            clearLongPress();
+          }
+          if (!gesture.moved || gesture.longFired) return;
+
+          if (controlMode === 'trackpad') {
+            const gain = 1.65;
+            const rdx = Math.round(dx * gain * (pcResW / Math.max(320, cvs.clientWidth)));
+            const rdy = Math.round(dy * gain * (pcResH / Math.max(200, cvs.clientHeight)));
+            if (rdx || rdy) {
+              curNormX = clamp01(curNormX + rdx / pcResW);
+              curNormY = clamp01(curNormY + rdy / pcResH);
+              scheduleCanvasDraw();
+              sendCoalescedMove({ type: 'move_rel', x: rdx, y: rdy });
+            }
+          } else {
+            const [nx, ny] = clientToPcNorm(t.clientX, t.clientY);
+            curNormX = nx; curNormY = ny;
+            const tapMode = document.getElementById('tapMode').value;
+            if (tapMode === 'move') {
+              sendCoalescedMove({ type: 'move', x: nx, y: ny });
+            } else {
+              if (!gesture.draggingPc) {
+                gesture.draggingPc = true;
+                pcInput('mouse_down', gesture.startNx, gesture.startNy);
+              }
+              sendCoalescedMove({ type: 'move', x: nx, y: ny });
+            }
+            scheduleCanvasDraw();
+          }
+        }
+      }, { passive: false });
+
+      cvs.addEventListener('touchend', (ev) => {
+        ev.preventDefault();
+        clearLongPress();
+        if (!gesture) return;
+        const g = gesture;
+        if (ev.touches.length === 0) gesture = null;
+
+        if (g.kind === 'two') {
+          if (!g.moved && performance.now() - g.startTime < 280) {
+            spawnRipple(curNormX, curNormY, true);
+            pcInput('right_click', curNormX, curNormY);
+          }
+          return;
+        }
+        if (g.kind === 'one') {
+          if (g.longFired) return;
+          if (g.draggingPc) {
+            const [nx, ny] = clientToPcNorm(g.lastX, g.lastY);
+            pcInput('mouse_up', nx, ny);
+            if (!liveStreamActive) setTimeout(refreshScreen, 200);
+            return;
+          }
+          if (!g.moved) {
+            const now = performance.now();
+            const isDbl = (now - lastTapTime < 260) && Math.hypot(g.startX - lastTapX, g.startY - lastTapY) < 22;
+            lastTapTime = now; lastTapX = g.startX; lastTapY = g.startY;
+            const tx = controlMode === 'trackpad' ? curNormX : g.startNx;
+            const ty = controlMode === 'trackpad' ? curNormY : g.startNy;
+            curNormX = tx; curNormY = ty;
+            const selectedMode = document.getElementById('tapMode').value;
+            const cmd = isDbl ? 'double_click' : selectedMode;
+            spawnRipple(tx, ty, cmd === 'right_click');
+            pcInput(cmd, tx, ty);
+            if (!liveStreamActive) setTimeout(refreshScreen, 200);
+          }
+        }
+      }, { passive: false });
+
+      // Desktop browser preview click support
+      cvs.addEventListener('click', (ev) => {
+        const [nx, ny] = clientToPcNorm(ev.clientX, ev.clientY);
+        const mode = document.getElementById('tapMode').value;
+        curNormX = nx; curNormY = ny;
+        spawnRipple(nx, ny, mode === 'right_click');
+        pcInput(mode, nx, ny);
+        if (!liveStreamActive) setTimeout(refreshScreen, 200);
+      });
+    })();
+
+    async function pcInput(inputType, xNorm = 0.5, yNorm = 0.5, key = '', text = '', delta = 0) {
       if (lanWs && lanWs.readyState === WebSocket.OPEN) {
-        lanWs.send(JSON.stringify({ type: 'pc_input', input_type: inputType, x_norm: xNorm, y_norm: yNorm, key, text }));
+        lanWs.send(JSON.stringify({ type: 'pc_input', input_type: inputType, x_norm: xNorm, y_norm: yNorm, key, text, delta }));
         return;
       }
       try {
         await fetch(SERVER_URL + '/api/pc/input', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ input_type: inputType, x_norm: xNorm, y_norm: yNorm, key, text })
+          body: JSON.stringify({ input_type: inputType, x_norm: xNorm, y_norm: yNorm, key, text, delta })
         });
       } catch (e) {}
     }
@@ -1187,7 +1633,7 @@
       if (!txt) return;
       inp.value = '';
       await pcInput('type', 0.5, 0.5, '', txt);
-      if (!liveStreamActive) setTimeout(refreshScreen, 250);
+      if (!liveStreamActive) setTimeout(refreshScreen, 220);
     }
 
     async function pcAction(action) {
@@ -1215,9 +1661,11 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'launch', app })
         });
-        if (!liveStreamActive) setTimeout(refreshScreen, 700);
+        if (!liveStreamActive) setTimeout(refreshScreen, 650);
       } catch (e) {}
     }
+
+    scheduleCanvasDraw();
 
     // ─── 7. Call Recordings Vault ──────────────────────────────────────────────
     async function loadVault() {

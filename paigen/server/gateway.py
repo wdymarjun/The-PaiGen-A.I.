@@ -18,11 +18,13 @@ Runs an asynchronous HTTP/WebSocket server on port 8765:
 
 import asyncio
 import base64
+from concurrent.futures import ThreadPoolExecutor
 import io
 import json
 import logging
 import os
 import socket
+import struct
 import time
 from typing import Set
 from aiohttp import WSMsgType, web
@@ -37,6 +39,9 @@ logger = logging.getLogger("PaiGenGateway")
 controller = RemotePCController()
 telephony = TelephonyBridge.get_instance()
 WS_CLIENTS: Set[web.WebSocketResponse] = set()
+# Dedicated pools isolate 60fps capture & mouse injection from slow LLM/TTS tasks
+_STREAM_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="PaiGenStream")
+_INPUT_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="PaiGenInput")
 
 
 async def broadcast_ws_event(event_type: str, payload: dict):
@@ -710,18 +715,19 @@ async def handle_pc_stats(request: web.Request) -> web.Response:
 
 
 async def handle_pc_input(request: web.Request) -> web.Response:
-    """Executes remote mouse click, scroll, keyboard typing, or hotkey from the mobile app."""
+    """Executes remote mouse click, drag, scroll, keyboard typing, or hotkey from the mobile app."""
     try:
         data = await request.json()
         loop = asyncio.get_event_loop()
         res = await loop.run_in_executor(
-            None,
+            _INPUT_EXECUTOR,
             controller.execute_pc_input,
             data.get("input_type", ""),
             data.get("x_norm", 0.5),
             data.get("y_norm", 0.5),
             data.get("text", ""),
             data.get("key", ""),
+            int(data.get("delta", 0) or 0),
         )
         return web.json_response(res)
     except Exception as e:
@@ -927,33 +933,80 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
     ws = web.WebSocketResponse(heartbeat=25.0)
     await ws.prepare(request)
     WS_CLIENTS.add(ws)
-    stream_cfg = {"active": False, "fps": 60, "quality": 55, "max_width": 960}
+    stream_cfg = {
+        "active": False,
+        "fps": 60,
+        "quality": 58,
+        "max_width": 1080,
+        "base_quality": 58,
+        "base_width": 1080,
+        "proto": 1,
+        "draw_cursor": True,
+    }
     stream_task = None
+    dirty_event = asyncio.Event()
 
     async def _screen_stream_loop():
         loop = asyncio.get_event_loop()
+        prev_sig = None
+        last_sent_ts = 0.0
+        seq = 0
         while stream_cfg["active"] and not ws.closed:
             t0 = time.perf_counter()
-            jpeg = await loop.run_in_executor(
-                None,
-                controller.get_screen_capture_jpeg,
+            now = time.time()
+            force_frame = dirty_event.is_set() or (now - last_sent_ts >= 1.2)
+            dirty_event.clear()
+
+            jpeg, new_sig, meta = await loop.run_in_executor(
+                _STREAM_EXECUTOR,
+                controller.get_screen_frame_if_changed,
                 stream_cfg["quality"],
                 stream_cfg["max_width"],
+                prev_sig,
+                force_frame,
+                stream_cfg["draw_cursor"],
             )
+            prev_sig = new_sig
+
             if jpeg and not ws.closed:
+                t_send = time.perf_counter()
                 try:
-                    await ws.send_bytes(jpeg)
+                    if stream_cfg["proto"] == 2:
+                        seq = (seq + 1) & 0xFFFFFFFF
+                        cap_ms = min(65535, int(round(meta.get("capture_ms", 0))))
+                        cx_u16 = max(0, min(65535, int(round(meta.get("cx", 0.5) * 65535))))
+                        cy_u16 = max(0, min(65535, int(round(meta.get("cy", 0.5) * 65535))))
+                        sw = max(1, min(65535, int(meta.get("sw", 1920))))
+                        sh = max(1, min(65535, int(meta.get("sh", 1080))))
+                        flags = 1 if force_frame else 0
+                        hdr = struct.pack("<2sIH4HB", b"PG", seq, cap_ms, cx_u16, cy_u16, sw, sh, flags)
+                        await ws.send_bytes(hdr + jpeg)
+                    else:
+                        await ws.send_bytes(jpeg)
+                    last_sent_ts = time.time()
                 except Exception:
                     break
+
+                # Adaptive backpressure control: prevent TCP/WebView bufferbloat on congested Wi-Fi
+                send_dt = time.perf_counter() - t_send
+                if send_dt > 0.032:
+                    stream_cfg["quality"] = max(32, stream_cfg["quality"] - 6)
+                    stream_cfg["max_width"] = max(640, int(stream_cfg["max_width"] * 0.88))
+                elif send_dt < 0.012:
+                    stream_cfg["quality"] = min(stream_cfg["base_quality"], stream_cfg["quality"] + 2)
+                    if stream_cfg["max_width"] < stream_cfg["base_width"]:
+                        stream_cfg["max_width"] = min(stream_cfg["base_width"], stream_cfg["max_width"] + 64)
+
             target_dt = 1.0 / max(1, min(165, int(stream_cfg["fps"])))
             elapsed = time.perf_counter() - t0
-            if target_dt > elapsed:
-                await asyncio.sleep(target_dt - elapsed)
-            else:
-                await asyncio.sleep(0.001)
+            wait_sec = max(0.002, (target_dt - elapsed) if jpeg else min(target_dt, 0.014))
+            try:
+                await asyncio.wait_for(dirty_event.wait(), timeout=wait_sec)
+            except asyncio.TimeoutError:
+                pass
 
     try:
-        await ws.send_json({"type": "connected", "service": "PaiGen AI v5.0", "ts": time.time()})
+        await ws.send_json({"type": "connected", "service": "PaiGen AI v5.3", "proto_max": 2, "ts": time.time()})
         async for msg in ws:
             if msg.type == WSMsgType.TEXT:
                 try:
@@ -961,29 +1014,42 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
                     kind = data.get("type", "")
                     if kind == "ping":
                         await ws.send_json({"type": "pong", "client_ts": data.get("client_ts"), "ts": time.time()})
-                    elif kind == "stream_screen_start":
-                        stream_cfg["fps"] = max(1, min(165, int(data.get("fps", 60))))
-                        stream_cfg["quality"] = max(25, min(90, int(data.get("quality", 55))))
-                        stream_cfg["max_width"] = max(480, min(1920, int(data.get("max_width", 960))))
-                        if not stream_cfg["active"]:
+                    elif kind in ("stream_screen_start", "stream_screen_config"):
+                        q = max(25, min(92, int(data.get("quality", stream_cfg["base_quality"]))))
+                        w = max(480, min(1920, int(data.get("max_width", stream_cfg["base_width"]))))
+                        stream_cfg["fps"] = max(1, min(165, int(data.get("fps", stream_cfg["fps"]))))
+                        stream_cfg["quality"] = q
+                        stream_cfg["base_quality"] = q
+                        stream_cfg["max_width"] = w
+                        stream_cfg["base_width"] = w
+                        if "proto" in data:
+                            stream_cfg["proto"] = int(data["proto"])
+                        if "draw_cursor" in data:
+                            stream_cfg["draw_cursor"] = bool(data["draw_cursor"])
+                        dirty_event.set()
+                        if kind == "stream_screen_start" and not stream_cfg["active"]:
                             stream_cfg["active"] = True
                             stream_task = asyncio.create_task(_screen_stream_loop())
                     elif kind == "stream_screen_stop":
                         stream_cfg["active"] = False
+                        dirty_event.set()
                         if stream_task:
                             stream_task.cancel()
                             stream_task = None
                     elif kind == "pc_input":
                         loop = asyncio.get_event_loop()
+                        itype = data.get("input_type", "click")
                         res = await loop.run_in_executor(
-                            None,
+                            _INPUT_EXECUTOR,
                             controller.execute_pc_input,
-                            data.get("input_type", "click"),
+                            itype,
                             data.get("x_norm", 0.5),
                             data.get("y_norm", 0.5),
                             data.get("text", ""),
                             data.get("key", ""),
+                            int(data.get("delta", 0) or 0),
                         )
+                        dirty_event.set()
                         if data.get("ack"):
                             await ws.send_json({"type": "input_result", "data": res})
                     elif kind == "chat":
@@ -996,13 +1062,14 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
                         act = data.get("action", "")
                         loop = asyncio.get_event_loop()
                         if act == "lock":
-                            res = await loop.run_in_executor(None, controller.lock_workstation)
+                            res = await loop.run_in_executor(_INPUT_EXECUTOR, controller.lock_workstation)
                         elif act in ("mute", "up", "down"):
-                            res = await loop.run_in_executor(None, controller.set_system_volume, act)
+                            res = await loop.run_in_executor(_INPUT_EXECUTOR, controller.set_system_volume, act)
                         elif act == "launch":
                             res = await loop.run_in_executor(None, controller.launch_desktop_app, data.get("app", ""))
                         else:
                             res = {"status": "error", "message": f"Unknown action '{act}'"}
+                        dirty_event.set()
                         await ws.send_json({"type": "action_result", "data": res})
                 except Exception as exc:
                     await ws.send_json({"type": "error", "message": str(exc)})
@@ -1010,6 +1077,7 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
                 break
     finally:
         stream_cfg["active"] = False
+        dirty_event.set()
         if stream_task:
             stream_task.cancel()
         WS_CLIENTS.discard(ws)

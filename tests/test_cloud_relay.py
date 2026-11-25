@@ -89,9 +89,17 @@ class TestVercelCloudRelay(unittest.TestCase):
                 st = json.loads(resp.read().decode("utf-8"))
                 self.assertTrue(st["pc_online"])
 
-            with urllib.request.urlopen(f"{self.base_url}/api/screen?token=secret123", timeout=4) as resp:
+            with urllib.request.urlopen(f"{self.base_url}/api/screen?watch=1&token=secret123", timeout=4) as resp:
                 jpg = resp.read()
                 self.assertEqual(jpg[:2], b"\xff\xd8")
+
+            req_poll = urllib.request.Request(
+                f"{self.base_url}/api/uplink/poll",
+                headers={"Authorization": "Bearer secret123"},
+            )
+            with urllib.request.urlopen(req_poll, timeout=4) as resp:
+                poll_data = json.loads(resp.read().decode("utf-8"))
+                self.assertTrue(poll_data.get("watch_active"))
 
             # Run a client POST /api/action concurrently while worker polls once
             def run_worker_poll():

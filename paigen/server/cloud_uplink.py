@@ -82,6 +82,10 @@ class CloudUplinkWorker:
         self.running = False
         self._last_heartbeat = 0.0
         self._last_screen_push = 0.0
+        self._last_screen_sig: Optional[int] = None
+        self._watch_until = 0.0
+        self._push_lock = threading.Lock()
+        self._push_inflight = False
 
     def _headers(self) -> Dict[str, str]:
         h = {"Content-Type": "application/json"}
@@ -114,14 +118,37 @@ class CloudUplinkWorker:
         except Exception:
             return False
 
-    def push_screen(self) -> bool:
-        jpeg = self.controller.get_screen_capture_jpeg(quality=55, max_width=1024)
+    def push_screen(self, force: bool = True) -> bool:
+        jpeg, sig, _ = self.controller.get_screen_frame_if_changed(
+            quality=52, max_width=1024, prev_sig=self._last_screen_sig, force=force, draw_cursor=True
+        )
         if not jpeg:
             return False
+        self._last_screen_sig = sig
         b64 = base64.b64encode(jpeg).decode("ascii")
         self._post("/api/uplink/screen", {"b64": b64})
         self._last_screen_push = time.time()
         return True
+
+    def _schedule_async_screen_push(self, delay_sec: float = 0.0, force: bool = True):
+        """Pushes updated screen frame off the poll thread so input ACKs return immediately."""
+        with self._push_lock:
+            if self._push_inflight:
+                return
+            self._push_inflight = True
+
+        def _worker():
+            try:
+                if delay_sec > 0:
+                    time.sleep(delay_sec)
+                self.push_screen(force=force)
+            except Exception:
+                pass
+            finally:
+                with self._push_lock:
+                    self._push_inflight = False
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def send_heartbeat(self):
         stats = self.controller.get_system_stats()
@@ -175,8 +202,9 @@ class CloudUplinkWorker:
 
         if ctype == "pc_input":
             itype = p.get("input_type", "")
+            self._watch_until = max(self._watch_until, time.time() + 12.0)
             if itype == "capture_screen":
-                ok = self.push_screen()
+                ok = self.push_screen(force=True)
                 return {"status": "success" if ok else "error"}
             res = self.controller.execute_pc_input(
                 itype,
@@ -184,8 +212,9 @@ class CloudUplinkWorker:
                 p.get("y_norm", 0.5),
                 p.get("text", ""),
                 p.get("key", ""),
+                int(p.get("delta", 0) or 0),
             )
-            self.push_screen()
+            self._schedule_async_screen_push(delay_sec=0.04, force=True)
             return res
 
         if ctype == "telephony_start":
@@ -229,14 +258,16 @@ class CloudUplinkWorker:
 
     def step(self) -> int:
         """Executes one poll + heartbeat cycle. Returns number of commands processed."""
-        if time.time() - self._last_heartbeat >= 5.0:
+        now = time.time()
+        if now - self._last_heartbeat >= 5.0:
             self.send_heartbeat()
-        if time.time() - self._last_screen_push >= 12.0:
-            try:
-                self.push_screen()
-            except Exception:
-                pass
         polled = self._get("/api/uplink/poll")
+        if polled.get("watch_active"):
+            self._watch_until = max(self._watch_until, now + 6.0)
+        watching = time.time() < self._watch_until
+        screen_interval = 0.28 if watching else 12.0
+        if time.time() - self._last_screen_push >= screen_interval:
+            self._schedule_async_screen_push(delay_sec=0.0, force=not watching)
         cmds = polled.get("commands", [])
         for cmd in cmds:
             cid = cmd.get("cmd_id")
@@ -264,7 +295,8 @@ class CloudUplinkWorker:
             try:
                 count = self.step()
                 if count == 0:
-                    time.sleep(self.poll_interval_sec)
+                    burst = time.time() < self._watch_until
+                    time.sleep(min(self.poll_interval_sec, 0.12) if burst else self.poll_interval_sec)
             except KeyboardInterrupt:
                 self.running = False
                 break

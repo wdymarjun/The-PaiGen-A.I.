@@ -704,11 +704,9 @@ CLOUD_HTML = """<!DOCTYPE html>
       const t = tokInp.value.trim();
       const tq = t ? '&token=' + encodeURIComponent(t) : '';
       const loadImg = async () => {
-        const r = await fetch('/api/screen?t='+Date.now()+tq, { headers:hdrs() });
+        const r = await fetch('/api/screen?watch=1&t='+Date.now()+tq, { headers:hdrs() });
         if (r.ok) { const blob = await r.blob(); document.getElementById('scrImg').src = URL.createObjectURL(blob); }
       };
-      await loadImg();
-      await fetch('/api/pc/input', { method:'POST', headers:hdrs(), body:JSON.stringify({ input_type:'capture_screen' }) }).catch(()=>{});
       await loadImg();
     }
     async function refreshCalls() {
@@ -889,6 +887,8 @@ class handler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/screen":
+            if (qs.get("watch") or [""])[0] == "1":
+                STORE.set_json("paigen:screen_watch", {"until": time.time() + 10.0}, ex=15)
             scr = STORE.get_json("paigen:latest_screen")
             if not scr or not scr.get("b64"):
                 self._send_bytes(b"No screen frame pushed yet", "text/plain", status=503)
@@ -898,7 +898,9 @@ class handler(BaseHTTPRequestHandler):
 
         if path == "/api/uplink/poll":
             cmds = STORE.pop_all_cmds()
-            self._send_json({"status": "ok", "commands": cmds})
+            sw = STORE.get_json("paigen:screen_watch") or {}
+            watch_active = float(sw.get("until", 0.0)) > time.time()
+            self._send_json({"status": "ok", "commands": cmds, "watch_active": watch_active})
             return
 
         if path == "/api/telephony/calls":
