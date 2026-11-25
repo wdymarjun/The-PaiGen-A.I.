@@ -58,14 +58,25 @@ class RemotePCController:
         """
         if not PIL_OK:
             return None
+        img = None
         try:
-            img = ImageGrab.grab()
+            import mss
+            with mss.mss() as sct:
+                mon = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
+                shot = sct.grab(mon)
+                img = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
         except Exception:
+            img = None
+
+        if img is None:
             try:
-                # Volatile RAM fallback: dark futuristic monitor placeholder
-                img = Image.new("RGB", (1280, 720), color=(14, 20, 32))
+                img = ImageGrab.grab()
             except Exception:
-                return None
+                try:
+                    # Volatile RAM fallback: dark futuristic monitor placeholder
+                    img = Image.new("RGB", (1280, 720), color=(14, 20, 32))
+                except Exception:
+                    return None
 
         try:
             # Downscale if wider than max_width to optimize mobile Wi-Fi bandwidth

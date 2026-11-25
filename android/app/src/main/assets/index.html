@@ -962,18 +962,18 @@
 
     // ─── 6. Remote PC Controls ─────────────────────────────────────────────────
     function refreshScreen() {
+      const img = document.getElementById('pcScreenImg');
       const tokParam = CLOUD_TOKEN ? '&token=' + encodeURIComponent(CLOUD_TOKEN) : '';
       const isCloud = SERVER_URL.startsWith('https://') || SERVER_URL.includes('onrender.com') || SERVER_URL.includes('vercel.app') || !!tokParam;
+      img.src = SERVER_URL + '/api/screen?t=' + Date.now() + tokParam;
       if (isCloud) {
         fetch(SERVER_URL + '/api/pc/input', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ input_type: 'capture_screen' })
         }).catch(() => {}).finally(() => {
-          document.getElementById('pcScreenImg').src = SERVER_URL + '/api/screen?t=' + Date.now() + tokParam;
+          img.src = SERVER_URL + '/api/screen?t=' + Date.now() + tokParam;
         });
-      } else {
-        document.getElementById('pcScreenImg').src = SERVER_URL + '/api/screen?t=' + Date.now();
       }
     }
 

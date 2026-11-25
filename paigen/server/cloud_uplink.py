@@ -72,7 +72,7 @@ class CloudUplinkWorker:
         self,
         cloud_url: str = DEFAULT_CLOUD_URL,
         cloud_token: str = "",
-        poll_interval_sec: float = 1.2,
+        poll_interval_sec: float = 0.8,
     ):
         self.cloud_url = (cloud_url or DEFAULT_CLOUD_URL).rstrip("/")
         self.cloud_token = cloud_token.strip()
@@ -81,6 +81,7 @@ class CloudUplinkWorker:
         self.telephony = TelephonyBridge.get_instance()
         self.running = False
         self._last_heartbeat = 0.0
+        self._last_screen_push = 0.0
 
     def _headers(self) -> Dict[str, str]:
         h = {"Content-Type": "application/json"}
@@ -119,6 +120,7 @@ class CloudUplinkWorker:
             return False
         b64 = base64.b64encode(jpeg).decode("ascii")
         self._post("/api/uplink/screen", {"b64": b64})
+        self._last_screen_push = time.time()
         return True
 
     def send_heartbeat(self):
@@ -229,6 +231,11 @@ class CloudUplinkWorker:
         """Executes one poll + heartbeat cycle. Returns number of commands processed."""
         if time.time() - self._last_heartbeat >= 5.0:
             self.send_heartbeat()
+        if time.time() - self._last_screen_push >= 12.0:
+            try:
+                self.push_screen()
+            except Exception:
+                pass
         polled = self._get("/api/uplink/poll")
         cmds = polled.get("commands", [])
         for cmd in cmds:

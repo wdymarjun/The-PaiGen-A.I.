@@ -116,6 +116,7 @@ def _init_parent_core() -> bool:
 # ─── Persistent State Store (Upstash Redis REST or Warm In-Memory Fallback) ──
 _MEM_KV: Dict[str, Any] = {}
 _MEM_QUEUE: List[Dict[str, Any]] = []
+_QUEUE_LOCK = threading.Lock()
 
 
 class StateStore:
@@ -162,9 +163,10 @@ class StateStore:
             self._redis_cmd(["LPUSH", "paigen:cmd_queue", json.dumps(cmd, ensure_ascii=False)])
             self._redis_cmd(["LTRIM", "paigen:cmd_queue", 0, 49])
         else:
-            _MEM_QUEUE.append(cmd)
-            if len(_MEM_QUEUE) > 50:
-                del _MEM_QUEUE[:-50]
+            with _QUEUE_LOCK:
+                _MEM_QUEUE.append(cmd)
+                if len(_MEM_QUEUE) > 50:
+                    del _MEM_QUEUE[:-50]
 
     def pop_all_cmds(self) -> List[Dict[str, Any]]:
         if self.use_redis:
@@ -175,9 +177,10 @@ class StateStore:
                     break
                 cmds.append(json.loads(raw))
             return cmds
-        cmds = list(_MEM_QUEUE)
-        _MEM_QUEUE.clear()
-        return cmds
+        with _QUEUE_LOCK:
+            cmds = list(_MEM_QUEUE)
+            _MEM_QUEUE.clear()
+            return cmds
 
 
 STORE = StateStore()
@@ -697,11 +700,15 @@ CLOUD_HTML = """<!DOCTYPE html>
       setTimeout(refreshScr, 500);
     }
     async function refreshScr() {
-      await fetch('/api/pc/input', { method:'POST', headers:hdrs(), body:JSON.stringify({ input_type:'capture_screen' }) });
       const t = tokInp.value.trim();
       const tq = t ? '&token=' + encodeURIComponent(t) : '';
-      const r = await fetch('/api/screen?t='+Date.now()+tq, { headers:hdrs() });
-      if (r.ok) { const blob = await r.blob(); document.getElementById('scrImg').src = URL.createObjectURL(blob); }
+      const loadImg = async () => {
+        const r = await fetch('/api/screen?t='+Date.now()+tq, { headers:hdrs() });
+        if (r.ok) { const blob = await r.blob(); document.getElementById('scrImg').src = URL.createObjectURL(blob); }
+      };
+      await loadImg();
+      await fetch('/api/pc/input', { method:'POST', headers:hdrs(), body:JSON.stringify({ input_type:'capture_screen' }) }).catch(()=>{});
+      await loadImg();
     }
     async function refreshCalls() {
       try {
@@ -723,7 +730,7 @@ CLOUD_HTML = """<!DOCTYPE html>
         box.innerText = d.logs.map(l => `[${l.ts}] [${l.level}] [${l.category}] ${l.message}`).join('\\n');
       } catch(e) {}
     }
-    function pollAll() { pollStats(); refreshBrain(); refreshHistory(); refreshCalls(); refreshLogs(); }
+    function pollAll() { pollStats(); refreshBrain(); refreshHistory(); refreshCalls(); refreshLogs(); refreshScr(); }
     pollAll(); setInterval(pollStats, 8000); setInterval(refreshLogs, 10000); setInterval(refreshHistory, 12000);
   </script>
 </body>
@@ -1082,7 +1089,7 @@ class handler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/pc/input":
-            pc_res = _dispatch_to_pc_and_wait("pc_input", data, wait_sec=8.0 if is_render else 5.0)
+            pc_res = _dispatch_to_pc_and_wait("pc_input", data, wait_sec=15.0 if is_render else 6.0)
             if pc_res is not None:
                 self._send_json(pc_res)
             else:
