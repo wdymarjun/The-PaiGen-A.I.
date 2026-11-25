@@ -1461,7 +1461,19 @@ class PaiGenApp:
 
 # ─────────────────────────────────────────────────────────────────────────────
 def _start_background_render_bridge():
-    """Auto-connects this PC to the Render Parent Server when cloud_bridge.json or env token exists."""
+    """Auto-connects Render Parent Server and ensures local Wi-Fi WebSocket Gateway (8765) is active."""
+    def _gateway_runner():
+        try:
+            import socket
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            in_use = s.connect_ex(("127.0.0.1", 8765)) == 0
+            s.close()
+            if not in_use:
+                from paigen.server.gateway import start_server
+                start_server(host="0.0.0.0", port=8765)
+        except Exception:
+            pass
+
     def _runner():
         try:
             from paigen.server.cloud_uplink import CloudUplinkWorker, DEFAULT_CLOUD_URL, load_cloud_config
@@ -1474,6 +1486,7 @@ def _start_background_render_bridge():
             worker.run_forever()
         except Exception:
             pass
+    threading.Thread(target=_gateway_runner, daemon=True).start()
     threading.Thread(target=_runner, daemon=True).start()
 
 

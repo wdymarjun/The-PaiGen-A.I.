@@ -15,6 +15,7 @@ import io
 import json
 import os
 import subprocess
+import threading
 import time
 from typing import Dict, Any, Optional
 
@@ -23,10 +24,19 @@ from paigen.brain.cognitive import CognitiveBrain, TelemetryContext
 from paigen.database.sqlite_store import SQLiteWALStore
 
 try:
+    import cv2
+    import numpy as np
+    CV2_OK = True
+except ImportError:
+    CV2_OK = False
+
+try:
     from PIL import Image, ImageGrab
     PIL_OK = True
 except ImportError:
     PIL_OK = False
+
+_MSS_TLS = threading.local()
 
 OLLAMA_URL = os.getenv("PAIGEN_OLLAMA_URL", "http://127.0.0.1:11434")
 CHAT_MODEL = os.getenv("PAIGEN_CHAT_MODEL", "paigen-ai")
@@ -54,39 +64,55 @@ class RemotePCController:
     def get_screen_capture_jpeg(quality: int = 65, max_width: int = 1280) -> Optional[bytes]:
         """
         Captures the primary PC screen directly into volatile RAM as compressed JPEG bytes.
-        No image data is ever persisted to disk.
+        Uses thread-local `mss` + OpenCV `imencode` (<10ms) with Pillow fallback.
         """
-        if not PIL_OK:
-            return None
-        img = None
+        # Fast path: persistent thread-local mss + OpenCV resize/encode
         try:
             import mss
-            with mss.mss() as sct:
-                mon = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
-                shot = sct.grab(mon)
+            sct = getattr(_MSS_TLS, "sct", None)
+            if sct is None:
+                sct = mss.mss()
+                _MSS_TLS.sct = sct
+            mon = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
+            shot = sct.grab(mon)
+            if CV2_OK:
+                frame = np.asarray(shot, dtype=np.uint8)[:, :, :3]
+                h, w = frame.shape[:2]
+                if w > max_width:
+                    new_h = max(1, int(max_width * (h / w)))
+                    frame = cv2.resize(frame, (max_width, new_h), interpolation=cv2.INTER_LINEAR)
+                ok, enc = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), int(quality)])
+                if ok:
+                    return enc.tobytes()
+            elif PIL_OK:
                 img = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
+                if img.width > max_width:
+                    img = img.resize((max_width, max(1, int(max_width * (img.height / img.width)))), Image.Resampling.BILINEAR)
+                buf = io.BytesIO()
+                img.save(buf, format="JPEG", quality=quality)
+                return buf.getvalue()
         except Exception:
-            img = None
+            _MSS_TLS.sct = None
 
-        if img is None:
+        if not PIL_OK:
+            return None
+        try:
+            img = ImageGrab.grab()
+        except Exception:
             try:
-                img = ImageGrab.grab()
+                # Volatile RAM fallback: dark futuristic monitor placeholder
+                img = Image.new("RGB", (1280, 720), color=(14, 20, 32))
             except Exception:
-                try:
-                    # Volatile RAM fallback: dark futuristic monitor placeholder
-                    img = Image.new("RGB", (1280, 720), color=(14, 20, 32))
-                except Exception:
-                    return None
+                return None
 
         try:
-            # Downscale if wider than max_width to optimize mobile Wi-Fi bandwidth
             if img.width > max_width:
                 aspect = img.height / img.width
                 new_h = int(max_width * aspect)
-                img = img.resize((max_width, new_h), Image.Resampling.LANCZOS)
+                img = img.resize((max_width, new_h), Image.Resampling.BILINEAR)
 
             buf = io.BytesIO()
-            img.save(buf, format="JPEG", quality=quality, optimize=True)
+            img.save(buf, format="JPEG", quality=quality)
             return buf.getvalue()
         except Exception:
             return None
@@ -162,9 +188,11 @@ class RemotePCController:
         text: str = "",
         key: str = "",
     ) -> Dict[str, Any]:
-        """Executes remote touch-to-mouse, scroll, text typing, or hotkey commands from the Android APK."""
+        """Executes ultra-low-latency touch-to-mouse, scroll, text typing, or hotkey commands."""
         try:
             import pyautogui
+            pyautogui.PAUSE = 0
+            pyautogui.MINIMUM_DURATION = 0
             sw, sh = pyautogui.size()
             tx = max(0, min(sw - 1, int(float(x_norm) * sw)))
             ty = max(0, min(sh - 1, int(float(y_norm) * sh)))
@@ -182,6 +210,9 @@ class RemotePCController:
             elif kind == "move":
                 pyautogui.moveTo(tx, ty)
                 return {"status": "success", "message": f"Moved cursor to ({tx}, {ty})"}
+            elif kind == "move_rel":
+                pyautogui.moveRel(int(float(x_norm)), int(float(y_norm)))
+                return {"status": "success", "message": "Moved cursor relative"}
             elif kind == "scroll_up":
                 pyautogui.scroll(350)
                 return {"status": "success", "message": "Scrolled PC screen up"}
@@ -189,7 +220,7 @@ class RemotePCController:
                 pyautogui.scroll(-350)
                 return {"status": "success", "message": "Scrolled PC screen down"}
             elif kind == "type" and text:
-                pyautogui.write(text, interval=0.01)
+                pyautogui.write(text, interval=0.0)
                 return {"status": "success", "message": f"Typed text on PC ({len(text)} chars)"}
             elif kind == "key" and key:
                 parts = [p.strip() for p in key.split("+") if p.strip()]
@@ -228,9 +259,20 @@ class RemotePCController:
         except Exception:
             pass
 
+        local_ip = "127.0.0.1"
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            local_ip = s.getsockname()[0]
+            s.close()
+        except Exception:
+            pass
+
         return {
             "status": "online",
             "hostname": socket.gethostname(),
+            "local_ip": local_ip,
+            "gateway_port": 8765,
             "os": f"{platform.system()} {platform.release()}",
             "active_window": active_title,
             "screen_resolution": screen_size,

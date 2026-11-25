@@ -231,20 +231,22 @@
       <div class="card">
         <div class="card-hdr">
           <span class="card-title">Live Interactive PC Screen</span>
-          <div style="display:flex;gap:6px;">
-            <button class="btn btn-ghost btn-sm" id="btnAutoScreen" onclick="toggleAutoScreen()">Auto: OFF</button>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <span class="pill" id="streamTelemetryPill">Idle</span>
+            <button class="btn btn-emerald btn-sm" id="btnAutoScreen" onclick="toggleAutoScreen()">⚡ Live: OFF</button>
             <button class="btn btn-cyan btn-sm" onclick="refreshScreen()">Refresh</button>
           </div>
         </div>
         <div class="pc-screen-box">
-          <img id="pcScreenImg" class="pc-screen-img" alt="Tap Refresh to load PC Screen" onclick="onScreenTap(event)">
+          <img id="pcScreenImg" class="pc-screen-img" alt="Tap Live or Refresh to load PC Screen" onclick="onScreenTap(event)">
         </div>
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:11px;color:var(--muted);">
-          <span>Tap image to click on PC</span>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:11px;color:var(--muted);gap:6px;">
+          <span id="streamHintTxt">Auto-uses Direct Wi-Fi WS (&lt;40ms) on LAN or Render on 5G</span>
           <select id="tapMode" style="background:var(--surface-2);color:#fff;border:1px solid var(--border);border-radius:8px;padding:3px 8px;font-size:11px;">
             <option value="click">Left Click</option>
             <option value="double_click">Double Click</option>
             <option value="right_click">Right Click</option>
+            <option value="move">Move Cursor</option>
           </select>
         </div>
       </div>
@@ -629,6 +631,10 @@
           pill.innerText = '◐ RENDER BRAIN ON';
           document.getElementById('activeWinLabel').innerText = (pingData.architecture === 'full_paigen_v5' ? 'Full Render Brain' : 'Render Cloud') + ' • PC Offline';
         }
+        if (stats.local_ip && stats.local_ip !== '127.0.0.1') {
+          PC_LAN_IP = stats.local_ip;
+          PC_GW_PORT = stats.gateway_port || 8765;
+        }
         if (stats.screen_resolution) {
           document.getElementById('pcResBadge').innerText = stats.screen_resolution[0] + 'x' + stats.screen_resolution[1];
         }
@@ -977,17 +983,123 @@
       }
     }
 
+    let PC_LAN_IP = '';
+    let PC_GW_PORT = 8765;
+    let lanWs = null;
+    let liveStreamActive = false;
+    let frameCounter = 0;
+    let fpsTimer = null;
+    let lastPingMs = null;
+
+    function connectLanWs(onOpenCb) {
+      if (!PC_LAN_IP) {
+        if (SERVER_URL.startsWith('http://')) {
+          try {
+            const u = new URL(SERVER_URL);
+            PC_LAN_IP = u.hostname;
+            PC_GW_PORT = u.port || 8765;
+          } catch (e) {}
+        }
+      }
+      if (!PC_LAN_IP) return false;
+      if (lanWs && lanWs.readyState === WebSocket.OPEN) {
+        if (onOpenCb) onOpenCb();
+        return true;
+      }
+      if (lanWs && lanWs.readyState === WebSocket.CONNECTING) return true;
+      try {
+        lanWs = new WebSocket(`ws://${PC_LAN_IP}:${PC_GW_PORT}/ws`);
+        lanWs.binaryType = 'blob';
+        lanWs.onopen = () => {
+          lanWs.send(JSON.stringify({ type: 'ping', client_ts: performance.now() }));
+          if (onOpenCb) onOpenCb();
+        };
+        lanWs.onmessage = (ev) => {
+          if (typeof ev.data === 'string') {
+            try {
+              const msg = JSON.parse(ev.data);
+              if (msg.type === 'pong' && msg.client_ts) {
+                lastPingMs = Math.max(1, Math.round(performance.now() - msg.client_ts));
+              }
+            } catch (e) {}
+            return;
+          }
+          frameCounter++;
+          const img = document.getElementById('pcScreenImg');
+          const oldUrl = img.dataset.objUrl;
+          const nextUrl = URL.createObjectURL(ev.data);
+          img.dataset.objUrl = nextUrl;
+          img.onload = () => { if (oldUrl) URL.revokeObjectURL(oldUrl); };
+          img.src = nextUrl;
+        };
+        lanWs.onclose = () => {
+          lanWs = null;
+          if (liveStreamActive) {
+            document.getElementById('streamTelemetryPill').innerText = 'Render Fallback';
+          }
+        };
+        lanWs.onerror = () => {
+          try { lanWs.close(); } catch (e) {}
+          lanWs = null;
+        };
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
+
     function toggleAutoScreen() {
       const btn = document.getElementById('btnAutoScreen');
-      if (autoScreenTimer) {
-        clearInterval(autoScreenTimer);
-        autoScreenTimer = null;
-        btn.innerText = 'Auto: OFF';
-      } else {
-        refreshScreen();
-        autoScreenTimer = setInterval(refreshScreen, 2000);
-        btn.innerText = 'Auto: ON';
+      const pill = document.getElementById('streamTelemetryPill');
+      if (liveStreamActive || autoScreenTimer) {
+        liveStreamActive = false;
+        if (autoScreenTimer) { clearInterval(autoScreenTimer); autoScreenTimer = null; }
+        if (fpsTimer) { clearInterval(fpsTimer); fpsTimer = null; }
+        if (lanWs && lanWs.readyState === WebSocket.OPEN) {
+          lanWs.send(JSON.stringify({ type: 'stream_screen_stop' }));
+        }
+        btn.innerText = '⚡ Live: OFF';
+        btn.className = 'btn btn-emerald btn-sm';
+        pill.innerText = 'Idle';
+        return;
       }
+
+      liveStreamActive = true;
+      frameCounter = 0;
+      btn.innerText = '⏹ Live: ON';
+      btn.className = 'btn btn-rose btn-sm';
+      pill.innerText = 'Connecting...';
+
+      const startedLan = connectLanWs(() => {
+        if (lanWs && lanWs.readyState === WebSocket.OPEN && liveStreamActive) {
+          lanWs.send(JSON.stringify({ type: 'stream_screen_start', fps: 60, quality: 55, max_width: 960 }));
+          lanWs.send(JSON.stringify({ type: 'ping', client_ts: performance.now() }));
+        }
+      });
+
+      if (!startedLan) {
+        refreshScreen();
+        autoScreenTimer = setInterval(refreshScreen, 900);
+        pill.innerText = 'Render Cloud';
+      } else {
+        // Fallback polling only if LAN WebSocket fails to open within 1.5s
+        setTimeout(() => {
+          if (liveStreamActive && (!lanWs || lanWs.readyState !== WebSocket.OPEN) && !autoScreenTimer) {
+            refreshScreen();
+            autoScreenTimer = setInterval(refreshScreen, 900);
+            pill.innerText = 'Render Cloud';
+          }
+        }, 1500);
+      }
+
+      fpsTimer = setInterval(() => {
+        if (!liveStreamActive) return;
+        if (lanWs && lanWs.readyState === WebSocket.OPEN) {
+          lanWs.send(JSON.stringify({ type: 'ping', client_ts: performance.now() }));
+          pill.innerText = `${frameCounter} FPS • ${lastPingMs || '--'} ms`;
+          frameCounter = 0;
+        }
+      }, 1000);
     }
 
     async function onScreenTap(ev) {
@@ -997,10 +1109,14 @@
       const yNorm = (ev.clientY - rect.top) / rect.height;
       const mode = document.getElementById('tapMode').value;
       await pcInput(mode, xNorm, yNorm);
-      setTimeout(refreshScreen, 350);
+      if (!liveStreamActive) setTimeout(refreshScreen, 250);
     }
 
     async function pcInput(inputType, xNorm = 0.5, yNorm = 0.5, key = '', text = '') {
+      if (lanWs && lanWs.readyState === WebSocket.OPEN) {
+        lanWs.send(JSON.stringify({ type: 'pc_input', input_type: inputType, x_norm: xNorm, y_norm: yNorm, key, text }));
+        return;
+      }
       try {
         await fetch(SERVER_URL + '/api/pc/input', {
           method: 'POST',
@@ -1016,10 +1132,14 @@
       if (!txt) return;
       inp.value = '';
       await pcInput('type', 0.5, 0.5, '', txt);
-      setTimeout(refreshScreen, 300);
+      if (!liveStreamActive) setTimeout(refreshScreen, 250);
     }
 
     async function pcAction(action) {
+      if (lanWs && lanWs.readyState === WebSocket.OPEN) {
+        lanWs.send(JSON.stringify({ type: 'pc_action', action }));
+        return;
+      }
       try {
         await fetch(SERVER_URL + '/api/action', {
           method: 'POST',
@@ -1030,13 +1150,17 @@
     }
 
     async function launchApp(app) {
+      if (lanWs && lanWs.readyState === WebSocket.OPEN) {
+        lanWs.send(JSON.stringify({ type: 'pc_action', action: 'launch', app }));
+        return;
+      }
       try {
         await fetch(SERVER_URL + '/api/action', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'launch', app })
         });
-        setTimeout(refreshScreen, 900);
+        if (!liveStreamActive) setTimeout(refreshScreen, 700);
       } catch (e) {}
     }
 

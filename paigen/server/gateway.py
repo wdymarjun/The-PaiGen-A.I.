@@ -923,19 +923,69 @@ async def handle_telephony_recording_get(request: web.Request) -> web.Response:
 
 
 async def handle_ws(request: web.Request) -> web.WebSocketResponse:
-    """Persistent bidirectional WebSocket link for the Android APK and live PC alerts."""
+    """Persistent bidirectional WebSocket link for ultra-low-latency PC screen stream & control."""
     ws = web.WebSocketResponse(heartbeat=25.0)
     await ws.prepare(request)
     WS_CLIENTS.add(ws)
+    stream_cfg = {"active": False, "fps": 60, "quality": 55, "max_width": 960}
+    stream_task = None
+
+    async def _screen_stream_loop():
+        loop = asyncio.get_event_loop()
+        while stream_cfg["active"] and not ws.closed:
+            t0 = time.perf_counter()
+            jpeg = await loop.run_in_executor(
+                None,
+                controller.get_screen_capture_jpeg,
+                stream_cfg["quality"],
+                stream_cfg["max_width"],
+            )
+            if jpeg and not ws.closed:
+                try:
+                    await ws.send_bytes(jpeg)
+                except Exception:
+                    break
+            target_dt = 1.0 / max(1, min(165, int(stream_cfg["fps"])))
+            elapsed = time.perf_counter() - t0
+            if target_dt > elapsed:
+                await asyncio.sleep(target_dt - elapsed)
+            else:
+                await asyncio.sleep(0.001)
+
     try:
-        await ws.send_json({"type": "connected", "service": "PaiGen AI v4.0", "ts": time.time()})
+        await ws.send_json({"type": "connected", "service": "PaiGen AI v5.0", "ts": time.time()})
         async for msg in ws:
             if msg.type == WSMsgType.TEXT:
                 try:
                     data = json.loads(msg.data)
                     kind = data.get("type", "")
                     if kind == "ping":
-                        await ws.send_json({"type": "pong", "ts": time.time()})
+                        await ws.send_json({"type": "pong", "client_ts": data.get("client_ts"), "ts": time.time()})
+                    elif kind == "stream_screen_start":
+                        stream_cfg["fps"] = max(1, min(165, int(data.get("fps", 60))))
+                        stream_cfg["quality"] = max(25, min(90, int(data.get("quality", 55))))
+                        stream_cfg["max_width"] = max(480, min(1920, int(data.get("max_width", 960))))
+                        if not stream_cfg["active"]:
+                            stream_cfg["active"] = True
+                            stream_task = asyncio.create_task(_screen_stream_loop())
+                    elif kind == "stream_screen_stop":
+                        stream_cfg["active"] = False
+                        if stream_task:
+                            stream_task.cancel()
+                            stream_task = None
+                    elif kind == "pc_input":
+                        loop = asyncio.get_event_loop()
+                        res = await loop.run_in_executor(
+                            None,
+                            controller.execute_pc_input,
+                            data.get("input_type", "click"),
+                            data.get("x_norm", 0.5),
+                            data.get("y_norm", 0.5),
+                            data.get("text", ""),
+                            data.get("key", ""),
+                        )
+                        if data.get("ack"):
+                            await ws.send_json({"type": "input_result", "data": res})
                     elif kind == "chat":
                         loop = asyncio.get_event_loop()
                         res = await loop.run_in_executor(
@@ -949,6 +999,8 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
                             res = await loop.run_in_executor(None, controller.lock_workstation)
                         elif act in ("mute", "up", "down"):
                             res = await loop.run_in_executor(None, controller.set_system_volume, act)
+                        elif act == "launch":
+                            res = await loop.run_in_executor(None, controller.launch_desktop_app, data.get("app", ""))
                         else:
                             res = {"status": "error", "message": f"Unknown action '{act}'"}
                         await ws.send_json({"type": "action_result", "data": res})
@@ -957,6 +1009,9 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
             elif msg.type == WSMsgType.ERROR:
                 break
     finally:
+        stream_cfg["active"] = False
+        if stream_task:
+            stream_task.cancel()
         WS_CLIENTS.discard(ws)
     return ws
 

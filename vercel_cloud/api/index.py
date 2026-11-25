@@ -878,6 +878,8 @@ class handler(BaseHTTPRequestHandler):
                 "status": "online" if _is_pc_online() else "pc_offline",
                 "pc_online": _is_pc_online(),
                 "hostname": hb.get("hostname", "PC Offline"),
+                "local_ip": hb.get("local_ip", ""),
+                "gateway_port": int(hb.get("gateway_port", 8765)),
                 "active_window": hb.get("active_window", "Render Cloud Parent"),
                 "screen_resolution": hb.get("screen_resolution", [1920, 1080]),
                 "ollama_online": bool(hb.get("ollama_online", False)),
