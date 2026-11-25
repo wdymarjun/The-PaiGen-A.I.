@@ -6,16 +6,16 @@
   <title>PaiGen AI — Mobile & PC Guardian</title>
   <style>
     :root {
-      --bg: #060911;
-      --surface: #0D1424;
-      --surface-2: #141E33;
-      --cyan: #00E5FF;
-      --emerald: #10B981;
-      --rose: #F43F5E;
-      --amber: #F59E0B;
-      --text: #F8FAFC;
-      --muted: #94A3B8;
-      --border: #1E293B;
+      --bg: #000000;
+      --surface: #0A0A0A;
+      --surface-2: #141414;
+      --cyan: #FFFFFF;
+      --emerald: #FFFFFF;
+      --rose: #E5E5E5;
+      --amber: #D4D4D4;
+      --text: #FFFFFF;
+      --muted: #999999;
+      --border: #2A2A2A;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-tap-highlight-color: transparent; }
     body { background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
@@ -23,18 +23,18 @@
     /* Top Header */
     .topbar {
       padding: 12px 16px;
-      background: rgba(13, 20, 36, 0.96);
+      background: #000000;
       border-bottom: 1px solid var(--border);
       display: flex;
       justify-content: space-between;
       align-items: center;
       flex-shrink: 0;
     }
-    .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 15px; letter-spacing: 0.05em; color: var(--cyan); }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 15px; letter-spacing: 0.05em; color: #FFFFFF; }
     .brand-sub { font-size: 10px; color: var(--muted); font-weight: 600; display: block; letter-spacing: 0.02em; }
     .conn-pill { font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 999px; border: 1px solid; cursor: pointer; }
-    .conn-online { background: rgba(16,185,129,0.14); color: var(--emerald); border-color: rgba(16,185,129,0.35); }
-    .conn-offline { background: rgba(245,158,11,0.14); color: var(--amber); border-color: rgba(245,158,11,0.35); }
+    .conn-online { background: #FFFFFF; color: #000000; border-color: #FFFFFF; }
+    .conn-offline { background: #141414; color: #A3A3A3; border-color: #333333; }
 
     /* Scrollable Main Stage */
     .pages { flex: 1; overflow-y: auto; padding: 12px 14px 86px; display: flex; flex-direction: column; gap: 12px; }
@@ -51,10 +51,10 @@
       transition: transform 0.1s ease, opacity 0.15s ease;
     }
     .btn:active { transform: scale(0.97); }
-    .btn-cyan { background: var(--cyan); color: #041019; }
-    .btn-emerald { background: var(--emerald); color: #041910; }
-    .btn-rose { background: var(--rose); color: #fff; }
-    .btn-ghost { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); }
+    .btn-cyan { background: #FFFFFF; color: #000000; }
+    .btn-emerald { background: #FFFFFF; color: #000000; }
+    .btn-rose { background: #141414; color: #FFFFFF; border: 1px solid #FFFFFF; }
+    .btn-ghost { background: var(--surface-2); color: #FFFFFF; border: 1px solid var(--border); }
     .btn-sm { padding: 7px 11px; font-size: 12px; border-radius: 10px; }
 
     /* Avatar Core */
@@ -64,24 +64,24 @@
 
     /* Active Call Banner */
     .call-active-card {
-      background: linear-gradient(145deg, #131B2E, #1D1224);
-      border: 1.5px solid var(--rose);
+      background: #0D0D0D;
+      border: 1.5px solid #FFFFFF;
       border-radius: 16px;
       padding: 14px;
       display: none;
       flex-direction: column;
       gap: 10px;
-      box-shadow: 0 0 24px rgba(244,63,94,0.2);
+      box-shadow: 0 0 20px rgba(255,255,255,0.15);
     }
     .call-active-card.visible { display: flex; }
-    .rec-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--rose); display: inline-block; animation: blink 1s infinite; }
+    .rec-dot { width: 10px; height: 10px; border-radius: 50%; background: #FFFFFF; display: inline-block; animation: blink 1s infinite; }
     @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
 
     .psych-chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
-    .pill { font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); color: var(--text); }
-    .pill-urgent { background: rgba(244,63,94,0.2); border-color: var(--rose); color: #FDA4AF; }
-    .pill-hi { background: rgba(0,229,255,0.16); border-color: var(--cyan); color: var(--cyan); }
-    .pill-ok { background: rgba(16,185,129,0.16); border-color: var(--emerald); color: #6EE7B7; }
+    .pill { font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); color: #FFFFFF; }
+    .pill-urgent { background: #FFFFFF; border-color: #FFFFFF; color: #000000; }
+    .pill-hi { background: #1F1F1F; border-color: #FFFFFF; color: #FFFFFF; }
+    .pill-ok { background: #141414; border-color: #666666; color: #FFFFFF; }
 
     /* Chat Area */
     .chat-scroll {
@@ -90,9 +90,9 @@
       display: flex; flex-direction: column; gap: 8px;
     }
     .msg { padding: 9px 12px; border-radius: 12px; font-size: 13px; line-height: 1.45; max-width: 88%; word-break: break-word; }
-    .msg.user { align-self: flex-end; background: #0369A1; color: #fff; }
-    .msg.ai { align-self: flex-start; background: var(--surface-2); border-left: 3px solid var(--cyan); color: #E2E8F0; }
-    .msg.caller { align-self: flex-end; background: #311B3D; border-right: 3px solid var(--rose); color: #FCE7F3; }
+    .msg.user { align-self: flex-end; background: #FFFFFF; color: #000000; font-weight: 500; }
+    .msg.ai { align-self: flex-start; background: var(--surface-2); border-left: 3px solid #FFFFFF; color: #FFFFFF; }
+    .msg.caller { align-self: flex-end; background: #1A1A1A; border-right: 3px solid #FFFFFF; color: #FFFFFF; }
     .msg.sys { align-self: center; font-size: 11px; color: var(--muted); }
 
     .input-row { display: flex; gap: 8px; align-items: center; }
@@ -274,12 +274,14 @@
       </div>
 
       <div class="card">
-        <div class="card-hdr"><span class="card-title">Launch Desktop Apps</span></div>
+        <div class="card-hdr"><span class="card-title">Launch Desktop Apps &amp; AI Style Studio</span></div>
         <div class="grid-2">
           <button class="btn btn-ghost btn-sm" onclick="launchApp('chrome')">🌐 Chrome</button>
           <button class="btn btn-ghost btn-sm" onclick="launchApp('code')">💻 VS Code</button>
           <button class="btn btn-ghost btn-sm" onclick="launchApp('terminal')">⌨ Terminal</button>
           <button class="btn btn-ghost btn-sm" onclick="launchApp('whatsapp')">💬 WhatsApp</button>
+          <button class="btn btn-cyan btn-sm" onclick="runAiStyleStudy()">🧠 Study Claude/Gemini/GPT</button>
+          <button class="btn btn-ghost btn-sm" id="btnHoverPc" onclick="togglePcHover()">🖱 Auto-Hover: OFF</button>
         </div>
       </div>
     </section>
@@ -452,7 +454,7 @@
       tick++;
       ctx.clearRect(0, 0, 180, 180);
       const cx = 90, cy = 90 + Math.sin(tick * 0.05) * 3.5;
-      const ringColor = activeCall.active ? '#F43F5E' : (isSpeaking ? '#10B981' : (isListening ? '#F59E0B' : '#00E5FF'));
+      const ringColor = activeCall.active ? '#FFFFFF' : (isSpeaking ? '#FFFFFF' : (isListening ? '#CCCCCC' : '#FFFFFF'));
 
       ctx.beginPath();
       ctx.arc(cx, cy, 58 + Math.sin(tick * 0.06) * 2, 0, Math.PI * 2);
@@ -463,8 +465,8 @@
       ctx.stroke();
       ctx.shadowBlur = 0;
 
-      // Cheeks
-      ctx.fillStyle = 'rgba(255, 115, 160, 0.40)';
+      // Cheeks (monochrome B&W)
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.22)';
       ctx.beginPath(); ctx.ellipse(cx - 32, cy + 8, 7, 3.5, 0, 0, Math.PI * 2); ctx.fill();
       ctx.beginPath(); ctx.ellipse(cx + 32, cy + 8, 7, 3.5, 0, 0, Math.PI * 2); ctx.fill();
 
@@ -491,7 +493,7 @@
       ctx.beginPath();
       if (open > 1.8) {
         ctx.ellipse(cx, cy + 22, 13, 4 + open, 0, 0, Math.PI * 2);
-        ctx.fillStyle = '#060911'; ctx.fill();
+        ctx.fillStyle = '#000000'; ctx.fill();
         ctx.stroke();
       } else {
         ctx.arc(cx, cy + 16, 15, 0.15 * Math.PI, 0.85 * Math.PI, false);
@@ -1354,6 +1356,19 @@
     loadPcAudioDevices();
     refreshAppUpdateInfo();
     setInterval(pingServer, 12000);
+
+    let hoverActive = false;
+    async function togglePcHover() {
+      hoverActive = !hoverActive;
+      const btn = document.getElementById('btnHoverPc');
+      if (btn) btn.innerText = hoverActive ? '🖱 Auto-Hover: ON' : '🖱 Auto-Hover: OFF';
+      await sendMainQuery(hoverActive ? 'hover pc' : 'stop hover');
+    }
+    async function runAiStyleStudy() {
+      switchTab('tab-core');
+      addChatMsg('mainChatBox', 'Studying Claude, Gemini & ChatGPT styles + retraining ML...', 'sys');
+      await sendMainQuery('study claude gemini chatgpt');
+    }
 
     function refreshAppUpdateInfo() {
       const el = document.getElementById('appUpdateStatus');

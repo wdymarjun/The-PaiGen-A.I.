@@ -484,26 +484,26 @@ CLOUD_HTML = """<!DOCTYPE html>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PaiGen AI — Render Parent Command Hub</title>
   <style>
-    :root { --bg:#060911; --card:#0D1424; --sub:#141E33; --cyan:#00E5FF; --green:#10B981; --amber:#F59E0B; --rose:#F43F5E; --text:#F8FAFC; --muted:#94A3B8; --border:#1E293B; }
+    :root { --bg:#000000; --card:#0A0A0A; --sub:#141414; --cyan:#FFFFFF; --green:#FFFFFF; --amber:#A3A3A3; --rose:#FFFFFF; --text:#FFFFFF; --muted:#999999; --border:#262626; }
     * { box-sizing:border-box; margin:0; padding:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
     body { background:var(--bg); color:var(--text); min-height:100vh; padding:16px; display:flex; flex-direction:column; gap:14px; max-width:1020px; margin:0 auto; }
     header { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; padding:12px 16px; background:var(--card); border:1px solid var(--border); border-radius:14px; }
-    .brand { color:var(--cyan); font-weight:800; font-size:16px; letter-spacing:.05em; }
+    .brand { color:#FFFFFF; font-weight:800; font-size:16px; letter-spacing:.05em; }
     .pills { display:flex; gap:8px; flex-wrap:wrap; }
-    .pill { font-size:11px; font-weight:700; padding:4px 10px; border-radius:999px; border:1px solid var(--border); background:var(--sub); color:var(--text); }
-    .on { background:rgba(16,185,129,.15); color:var(--green); border-color:rgba(16,185,129,.4); }
-    .off { background:rgba(245,158,11,.15); color:var(--amber); border-color:rgba(245,158,11,.4); }
+    .pill { font-size:11px; font-weight:700; padding:4px 10px; border-radius:999px; border:1px solid var(--border); background:var(--sub); color:#FFFFFF; }
+    .on { background:#FFFFFF; color:#000000; border-color:#FFFFFF; }
+    .off { background:#141414; color:#A3A3A3; border-color:#333333; }
     .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:14px; }
     .card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:14px; display:flex; flex-direction:column; gap:10px; }
-    .title { font-size:11px; font-weight:800; text-transform:uppercase; color:var(--cyan); letter-spacing:.07em; display:flex; justify-content:space-between; align-items:center; }
+    .title { font-size:11px; font-weight:800; text-transform:uppercase; color:#FFFFFF; letter-spacing:.07em; display:flex; justify-content:space-between; align-items:center; }
     input, select, button { border-radius:10px; padding:9px 12px; font-size:13px; }
     input, select { background:var(--sub); border:1px solid var(--border); color:#fff; width:100%; outline:none; }
-    button { border:none; background:var(--cyan); color:#041019; font-weight:700; cursor:pointer; }
+    button { border:none; background:#FFFFFF; color:#000000; font-weight:700; cursor:pointer; }
     button.ghost { background:var(--sub); color:#fff; border:1px solid var(--border); }
     .chat { min-height:200px; max-height:300px; overflow-y:auto; display:flex; flex-direction:column; gap:8px; }
     .msg { padding:8px 12px; border-radius:10px; font-size:13px; max-width:88%; word-break:break-word; }
-    .u { align-self:flex-end; background:#0369A1; }
-    .a { align-self:flex-start; background:var(--sub); border-left:3px solid var(--cyan); }
+    .u { align-self:flex-end; background:#FFFFFF; color:#000000; }
+    .a { align-self:flex-start; background:var(--sub); border-left:3px solid #FFFFFF; color:#FFFFFF; }
     img.scr { width:100%; border-radius:10px; border:1px solid var(--border); cursor:crosshair; min-height:160px; background:#020408; }
     .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
     .kv { font-size:12px; color:var(--muted); display:flex; justify-content:space-between; border-bottom:1px solid rgba(255,255,255,.05); padding:4px 0; }

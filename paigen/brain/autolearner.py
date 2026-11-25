@@ -195,17 +195,25 @@ def wiki_fetch(topic: str, sentences: int = 6) -> str:
         except Exception as e:
             logger.debug(f"wikipedia library summary exception: {e}")
 
-    # Canonical Wikimedia REST API fallback (zero dependencies, high reliability)
+    # Canonical Wikimedia REST API + OpenSearch fallback (handles natural questions cleanly)
     try:
         import urllib.request
         import urllib.parse
-        encoded = urllib.parse.quote(clean_topic.replace(" ", "_"))
+        headers = {"User-Agent": "PaiGenAI/5.2 (Autonomous Executive Intelligence; mail6arjun478@gmail.com)"}
+        resolved_title = clean_topic
+        if len(clean_topic.split()) > 3 or "?" in clean_topic:
+            search_q = re.sub(r"^(what is|who is|who was|tell me about|explain|define|search|wikipedia|kya hai)\s+", "", clean_topic, flags=re.IGNORECASE).strip(" ?.")
+            if search_q:
+                os_url = f"https://en.wikipedia.org/w/api.php?action=opensearch&search={urllib.parse.quote(search_q)}&limit=1&format=json"
+                with urllib.request.urlopen(urllib.request.Request(os_url, headers=headers), timeout=4) as sr:
+                    os_data = json.loads(sr.read().decode("utf-8"))
+                    if len(os_data) >= 2 and os_data[1]:
+                        resolved_title = os_data[1][0]
+
+        encoded = urllib.parse.quote(resolved_title.replace(" ", "_"))
         url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{encoded}"
-        req = urllib.request.Request(
-            url,
-            headers={"User-Agent": "PaiGenAI/3.0 (Autonomous Executive Intelligence; mail6arjun478@gmail.com)"}
-        )
-        with urllib.request.urlopen(req, timeout=8) as resp:
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=5) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             extract = data.get("extract")
             if extract:

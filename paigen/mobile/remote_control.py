@@ -164,6 +164,31 @@ class RemotePCController:
             vol_res = self.set_system_volume("mute")
             return {"status": "success", "reply": "PC audio toggled.", "action": "mute", "details": vol_res}
 
+        if any(w in low for w in ("stop hover", "stop auto hover")):
+            from paigen.brain.ai_style_trainer import AutonomousStyleStudio
+            res = AutonomousStyleStudio.stop_hover()
+            return {"status": "success", "reply": res["message"], "action": "stop_hover", "details": res}
+
+        if any(w in low for w in ("hover pc", "auto hover", "random hover", "open claude and chat")):
+            from paigen.brain.ai_style_trainer import AutonomousStyleStudio
+            res = AutonomousStyleStudio.start_hover(open_portals=True, duration_sec=45.0)
+            return {"status": "success", "reply": res["message"], "action": "start_hover", "details": res}
+
+        if any(w in low for w in ("study claude", "analyze claude", "claude gemini chatgpt", "open claude")):
+            from paigen.brain.ai_style_trainer import AutonomousStyleStudio
+            opened = AutonomousStyleStudio.open_ai_portals(["claude", "gemini", "chatgpt"])
+            distilled = AutonomousStyleStudio.distill_tri_style_and_retrain()
+            m = distilled["ml_metrics"]
+            return {
+                "status": "success",
+                "reply": (
+                    f"{opened['message']} Tri-style distillation complete & ML retrained "
+                    f"(Triage {m['val_triage_accuracy']*100:.1f}%, Psych {m['val_state_accuracy']*100:.1f}%)."
+                ),
+                "action": "ai_style_study",
+                "details": distilled,
+            }
+
         # 2. DesktopController Automation check
         desktop_reply = DesktopController.execute_command(q_clean)
         if desktop_reply:

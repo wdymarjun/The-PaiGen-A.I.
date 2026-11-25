@@ -155,14 +155,17 @@ class CognitiveBrain:
             except Exception as e:
                 logger.debug(f"Psychology engine profiling skipped: {e}")
 
-        # Retrieve relevant citations from verified local knowledge base
+        # Retrieve relevant citations from verified local knowledge base + live Wikipedia
         cited_block = ""
         if user_query:
             cited_block = self.retriever.format_cited_context_block(user_query, top_k=2)
+            wiki_ctx = self._auto_wikipedia_context(user_query)
+            if wiki_ctx:
+                cited_block = f"{cited_block}\n{wiki_ctx}".strip()
             if cited_block:
                 cited_block = (
                     f"\n{cited_block}\n"
-                    f"(Guidance: Distinguish verified scholarly literature from curated project notes. "
+                    f"(Guidance: Distinguish verified scholarly literature and live Wikipedia facts from curated project notes. "
                     f"Cite source authors and titles accurately. If no relevant sources were found, transparently report so.)\n"
                 )
 
@@ -225,6 +228,35 @@ ACTIVE BEHAVIORAL DIRECTIVE:
 STRICT INVARIANT: You run 100% locally on localhost. Zero cloud calls."""
 
         return prompt
+
+    @staticmethod
+    def _auto_wikipedia_context(user_query: str) -> str:
+        """Automatically fetches concise Wikipedia grounding for informational questions."""
+        q = (user_query or "").strip()
+        low = q.lower()
+        if len(q.split()) < 3 or low in ("hi", "hello", "hey", "ok", "thanks", "namaste", "bye"):
+            return ""
+        if any(p in low for p in ("[channel: call]", "lock pc", "mute pc", "open chrome", "kya haal")):
+            return ""
+        question_cues = (
+            "?", "who is", "who was", "what is", "what are", "where is", "when did",
+            "why is", "why did", "how does", "how do", "explain ", "define ",
+            "tell me about", "wikipedia", "wiki ", "history of", "kya hai", "kaun hai", "kaun tha",
+        )
+        if not any(cue in low for cue in question_cues):
+            return ""
+        try:
+            from concurrent.futures import ThreadPoolExecutor
+            from paigen.brain.autolearner import wiki_fetch
+
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                fut = pool.submit(wiki_fetch, q, 2)
+                summary = fut.result(timeout=1.5)
+            if summary and not summary.startswith("Wikipedia lookup error") and not summary.startswith("No topic"):
+                return f"[LIVE WIKIPEDIA CONTEXT]: {summary[:550]}"
+        except Exception:
+            pass
+        return ""
 
     def _compile_human_state_block(self, user_input: str, ctx: TelemetryContext) -> str:
         """Builds a compact (<150 tokens) Neuro-Philosophical telemetry block for Ollama."""
