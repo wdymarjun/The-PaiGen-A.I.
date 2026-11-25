@@ -203,6 +203,7 @@
           <button class="btn btn-cyan" id="btnMicMain" onclick="listenMainQuery()">🎤 Talk to PaiGen</button>
           <button class="btn btn-ghost" onclick="switchTab('tab-pc')">🖥 Control PC</button>
         </div>
+        <button class="btn btn-ghost btn-sm" id="btnFloatingOverlay" style="width:100%;margin-top:8px;" onclick="toggleFloatingOverlayUi()">🪟 Floating Display-Over-Apps HUD: OFF</button>
         <button class="btn btn-emerald btn-sm" id="btnBtBridge" style="width:100%;margin-top:8px;" onclick="toggleBtAudioBridge()">🎧 Start ₹0 PC Bluetooth Call Bridge (Vivo V29)</button>
         <div id="btBridgeStatusTxt" style="font-size:11px;color:var(--muted);margin-top:6px;">Idle • Pair Vivo V29 via Windows Bluetooth to route call voice cleanly.</div>
       </div>
@@ -435,6 +436,9 @@
     // Active Call Session state
     let activeCall = {
       active: false,
+      autoLoop: true,
+      lastAction: '',
+      retryCount: 0,
       callId: null,
       callerId: '',
       callerName: '',
@@ -505,6 +509,23 @@
 
     window.onNativeSpeakState = function(speaking) {
       isSpeaking = !!speaking;
+      if (!isSpeaking && activeCall.active && activeCall.autoLoop) {
+        if (activeCall.lastAction === 'TERMINATE') {
+          setTimeout(() => {
+            if (activeCall.active) endAndSaveCall();
+          }, 700);
+          return;
+        }
+        // Automatically listen to the caller's next sentence after PaiGen finishes talking
+        setTimeout(() => {
+          if (activeCall.active && activeCall.autoLoop && !isSpeaking && !isListening) {
+            if (hasNative && PaiGenNative.updateFloatingOverlay) {
+              PaiGenNative.updateFloatingOverlay('LISTENING TO CALLER...', activeCall.transcript.slice(-1)[0]?.text || '');
+            }
+            listenToCaller();
+          }
+        }, 320);
+      }
     };
 
     // ─── 2. Navigation & Config ────────────────────────────────────────────────
@@ -729,8 +750,12 @@
 
     window.onNativeSpeechResult = function(text) {
       isListening = false;
+      activeCall.retryCount = 0;
       document.getElementById('coreStatus').innerText = 'Ready • Hindi-First & British Voice Active';
-      if (!text) return;
+      if (!text) {
+        if (activeCall.active && activeCall.autoLoop) setTimeout(listenToCaller, 400);
+        return;
+      }
       if (listenMode === 'caller' && activeCall.active) {
         handleCallerUtterance(text);
       } else {
@@ -741,6 +766,16 @@
 
     window.onNativeSpeechError = function(code) {
       isListening = false;
+      if (activeCall.active && activeCall.autoLoop && listenMode === 'caller' && activeCall.retryCount < 6) {
+        activeCall.retryCount++;
+        document.getElementById('coreStatus').innerText = `Listening for caller (retry ${activeCall.retryCount})...`;
+        setTimeout(() => {
+          if (activeCall.active && activeCall.autoLoop && !isSpeaking && !isListening) {
+            listenToCaller();
+          }
+        }, 350);
+        return;
+      }
       document.getElementById('coreStatus').innerText = 'Ready • Tap mic anytime';
     };
 
@@ -814,6 +849,9 @@
     window.onNativeCallTakeover = async function(callerName, callerNumber) {
       switchTab('tab-core');
       activeCall.active = true;
+      activeCall.autoLoop = true;
+      activeCall.lastAction = '';
+      activeCall.retryCount = 0;
       activeCall.callerName = callerName || 'Incoming Caller';
       activeCall.callerId = callerNumber || 'Unknown';
       activeCall.startTime = Date.now();
@@ -915,9 +953,13 @@
       }
 
       activeCall.lang = lang;
+      activeCall.lastAction = callAction;
       activeCall.latestPsych = psych;
       activeCall.transcript.push({ role: 'paigen', text: reply });
       addChatMsg('callTranscriptBox', reply, 'ai');
+      if (hasNative && PaiGenNative.updateFloatingOverlay) {
+        PaiGenNative.updateFloatingOverlay(`${psych.triage_tier || 'TIER_3'} • ${callAction}`, `Caller: ${speech}\nPaiGen: ${reply}`);
+      }
 
       const pills = document.getElementById('callPsychPills');
       const urgentCls = (psych.triage_tier || '').includes('TIER_1') || (psych.triage_tier || '').includes('TIER_2') || callAction === 'TERMINATE' ? 'pill-urgent' : 'pill-ok';
@@ -933,8 +975,11 @@
     async function endAndSaveCall() {
       if (!activeCall.active) return;
       activeCall.active = false;
+      activeCall.autoLoop = false;
       if (activeCall.timerHandle) clearInterval(activeCall.timerHandle);
       document.getElementById('activeCallCard').classList.remove('visible');
+      if (hasNative && PaiGenNative.endHandsFreeCall) PaiGenNative.endHandsFreeCall();
+      if (hasNative && PaiGenNative.updateFloatingOverlay) PaiGenNative.updateFloatingOverlay('CALL SAVED TO VAULT', plainTranscript.slice(0, 140));
 
       const psych = activeCall.latestPsych || {};
       const transcriptJson = JSON.stringify(activeCall.transcript);
@@ -1356,6 +1401,23 @@
     loadPcAudioDevices();
     refreshAppUpdateInfo();
     setInterval(pingServer, 12000);
+
+    let overlayUiActive = false;
+    function toggleFloatingOverlayUi() {
+      overlayUiActive = !overlayUiActive;
+      if (hasNative && PaiGenNative.toggleFloatingOverlay) {
+        PaiGenNative.toggleFloatingOverlay(overlayUiActive);
+        setTimeout(() => {
+          if (PaiGenNative.isFloatingOverlayActive) {
+            overlayUiActive = !!PaiGenNative.isFloatingOverlayActive();
+            const b = document.getElementById('btnFloatingOverlay');
+            if (b) b.innerText = overlayUiActive ? '🪟 Floating Display-Over-Apps HUD: ON' : '🪟 Floating Display-Over-Apps HUD: OFF';
+          }
+        }, 350);
+      } else {
+        alert('Floating Display-Over-Apps HUD works inside the Android APK.');
+      }
+    }
 
     let hoverActive = false;
     async function togglePcHover() {

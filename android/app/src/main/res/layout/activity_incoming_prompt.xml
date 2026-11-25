@@ -12,7 +12,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="PAIGEN CALL GUARDIAN • ACTIVE"
-        android:textColor="#00E5FF"
+        android:textColor="#FFFFFF"
         android:textSize="11sp"
         android:textStyle="bold"
         android:letterSpacing="0.08" />
@@ -23,7 +23,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="10dp"
         android:text="Incoming Call"
-        android:textColor="#F8FAFC"
+        android:textColor="#FFFFFF"
         android:textSize="22sp"
         android:textStyle="bold" />
 
@@ -33,7 +33,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="2dp"
         android:text="+91 ..."
-        android:textColor="#94A3B8"
+        android:textColor="#A3A3A3"
         android:textSize="14sp" />
 
     <TextView
@@ -42,7 +42,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="14dp"
         android:text="Should I talk?\nक्या मैं आपकी जगह बात करूँ और कॉल रिकॉर्ड करूँ?"
-        android:textColor="#E2E8F0"
+        android:textColor="#E5E5E5"
         android:textSize="15sp"
         android:lineSpacingExtra="4dp" />
 
@@ -52,10 +52,10 @@
         android:layout_height="52dp"
         android:layout_marginTop="18dp"
         android:text="Yes, Let PaiGen Talk (Hindi / Auto)"
-        android:textColor="#041019"
+        android:textColor="#000000"
         android:textStyle="bold"
         android:textSize="14sp"
-        android:background="#00E5FF" />
+        android:background="#FFFFFF" />
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -70,9 +70,9 @@
             android:layout_weight="1"
             android:layout_marginEnd="6dp"
             android:text="Answer Myself"
-            android:textColor="#F8FAFC"
+            android:textColor="#FFFFFF"
             android:textSize="13sp"
-            android:background="#1E293B" />
+            android:background="#181818" />
 
         <Button
             android:id="@+id/btnDismiss"
@@ -81,8 +81,8 @@
             android:layout_weight="1"
             android:layout_marginStart="6dp"
             android:text="Dismiss"
-            android:textColor="#FCA5A5"
+            android:textColor="#CCCCCC"
             android:textSize="13sp"
-            android:background="#2D1622" />
+            android:background="#262626" />
     </LinearLayout>
 </LinearLayout>

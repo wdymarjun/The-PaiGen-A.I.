@@ -26,6 +26,8 @@ public class PaiGenBridgeService extends Service {
 
     private static final Handler autoBusyHandler = new Handler(Looper.getMainLooper());
     private static Runnable pendingTakeover = null;
+    private static long lastRingPromptTs = 0L;
+    private static String lastRingNumber = "";
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private boolean running = false;
@@ -164,12 +166,27 @@ public class PaiGenBridgeService extends Service {
     }
 
     public static void onIncomingRing(Context ctx, String callerName, String callerNumber) {
+        long now = System.currentTimeMillis();
+        String normNum = callerNumber == null ? "" : callerNumber.trim();
+        if ((now - lastRingPromptTs) < 4000L && normNum.equals(lastRingNumber)) {
+            return;
+        }
+        lastRingPromptTs = now;
+        lastRingNumber = normNum;
+
         cancelAutoBusyTimer();
         Context appCtx = ctx.getApplicationContext();
         SharedPreferences prefs = appCtx.getSharedPreferences("paigen_prefs", MODE_PRIVATE);
         boolean busyMode = prefs.getBoolean("busy_mode", false);
         int timeoutSec = prefs.getInt("busy_timeout_sec", 8);
 
+        PaiGenOverlayService.show(
+            appCtx,
+            true,
+            callerName,
+            callerNumber,
+            busyMode ? "AUTO-BUSY ARMED (" + timeoutSec + "s)" : "SHOULD I TALK?"
+        );
         triggerIncomingCallPrompt(appCtx, callerName, callerNumber, busyMode, timeoutSec);
 
         if (busyMode) {

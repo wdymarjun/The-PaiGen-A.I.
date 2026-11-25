@@ -79,14 +79,29 @@ public class MainActivity extends Activity {
     }
 
     private void handleIncomingIntent(Intent intent) {
-        if (intent != null && "paigen_take_call".equals(intent.getStringExtra("action"))) {
+        if (intent == null) return;
+        String act = intent.getStringExtra("action");
+        if ("paigen_take_call".equals(act)) {
             String name = intent.getStringExtra(IncomingCallPromptActivity.EXTRA_CALLER_NAME);
             String num = intent.getStringExtra(IncomingCallPromptActivity.EXTRA_CALLER_NUMBER);
             tryEngageHandsFreeCall();
+            PaiGenOverlayService.show(this, true, name != null ? name : "Incoming Caller", num != null ? num : "", "TALKING HANDS-FREE");
             if (pageLoaded) {
                 dispatchJsCallTakeover(name, num);
             } else {
                 pendingCallIntent = intent;
+            }
+        } else if ("paigen_end_call".equals(act)) {
+            if (pageLoaded) {
+                mainHandler.post(() -> webView.evaluateJavascript("window.endAndSaveCall && window.endAndSaveCall();", null));
+            }
+        } else if ("paigen_voice_ask".equals(act)) {
+            if (pageLoaded) {
+                mainHandler.post(() -> webView.evaluateJavascript("window.listenMainQuery && window.listenMainQuery();", null));
+            }
+        } else if ("paigen_open_pc".equals(act)) {
+            if (pageLoaded) {
+                mainHandler.post(() -> webView.evaluateJavascript("window.switchTab && window.switchTab('tab-pc');", null));
             }
         }
     }
@@ -102,11 +117,21 @@ public class MainActivity extends Activity {
             }
         } catch (Exception ignored) {
         }
+        engageSpeakerphoneRoute();
+        mainHandler.postDelayed(this::engageSpeakerphoneRoute, 450L);
+        mainHandler.postDelayed(this::engageSpeakerphoneRoute, 1200L);
+    }
+
+    private void engageSpeakerphoneRoute() {
         try {
             AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
             if (am != null) {
                 am.setMode(AudioManager.MODE_IN_COMMUNICATION);
                 am.setSpeakerphoneOn(true);
+                int maxCallVol = am.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL);
+                int maxMediaVol = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+                am.setStreamVolume(AudioManager.STREAM_VOICE_CALL, maxCallVol, 0);
+                am.setStreamVolume(AudioManager.STREAM_MUSIC, maxMediaVol, 0);
             }
         } catch (Exception ignored) {
         }
@@ -653,6 +678,57 @@ public class MainActivity extends Activity {
         public void openAppDetailsSettings() {
             Intent i = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()));
             startActivity(i);
+        }
+
+        @JavascriptInterface
+        public void endHandsFreeCall() {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
+                    checkSelfPermission(Manifest.permission.ANSWER_PHONE_CALLS) == PackageManager.PERMISSION_GRANTED) {
+                    TelecomManager tm = (TelecomManager) getSystemService(Context.TELECOM_SERVICE);
+                    if (tm != null && tm.isInCall()) {
+                        tm.endCall();
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+            try {
+                AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+                if (am != null) {
+                    am.setSpeakerphoneOn(false);
+                    am.setMode(AudioManager.MODE_NORMAL);
+                }
+            } catch (Exception ignored) {
+            }
+        }
+
+        @JavascriptInterface
+        public void toggleFloatingOverlay(boolean enable) {
+            if (enable) {
+                if (!Settings.canDrawOverlays(MainActivity.this)) {
+                    requestOverlayPermission();
+                    return;
+                }
+                PaiGenOverlayService.show(
+                    MainActivity.this,
+                    true,
+                    "PaiGen Floating HUD",
+                    "",
+                    "DISPLAY OVER APPS ON"
+                );
+            } else {
+                PaiGenOverlayService.hide(MainActivity.this);
+            }
+        }
+
+        @JavascriptInterface
+        public boolean isFloatingOverlayActive() {
+            return PaiGenOverlayService.isOverlayActive();
+        }
+
+        @JavascriptInterface
+        public void updateFloatingOverlay(String statusText, String transcriptText) {
+            PaiGenOverlayService.updateStatus(MainActivity.this, statusText, transcriptText);
         }
 
         @JavascriptInterface

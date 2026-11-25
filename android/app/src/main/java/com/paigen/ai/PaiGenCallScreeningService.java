@@ -9,6 +9,7 @@ public class PaiGenCallScreeningService extends CallScreeningService {
     public void onScreenCall(Call.Details callDetails) {
         SharedPreferences prefs = getSharedPreferences("paigen_prefs", MODE_PRIVATE);
         boolean autoAsk = prefs.getBoolean("auto_ask_calls", true);
+        boolean busyMode = prefs.getBoolean("busy_mode", false);
 
         String handle = callDetails.getHandle() != null
                 ? callDetails.getHandle().getSchemeSpecificPart()
@@ -18,8 +19,8 @@ public class PaiGenCallScreeningService extends CallScreeningService {
             callerName = "Incoming Caller";
         }
 
-        if (autoAsk) {
-            PaiGenBridgeService.triggerIncomingCallPrompt(this, callerName, handle);
+        if (autoAsk || busyMode) {
+            PaiGenBridgeService.onIncomingRing(this, callerName, handle);
         }
 
         CallResponse response = new CallResponse.Builder()
