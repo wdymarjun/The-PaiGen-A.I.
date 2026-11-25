@@ -120,8 +120,12 @@ public class PaiGenBridgeService extends Service {
         try {
             SharedPreferences prefs = getSharedPreferences("paigen_prefs", MODE_PRIVATE);
             String baseUrl = prefs.getString("server_url", "http://192.168.11.146:8765");
+            String token = prefs.getString("cloud_token", "");
             URL url = new URL(baseUrl + "/api/ping");
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            if (token != null && !token.isEmpty()) {
+                conn.setRequestProperty("Authorization", "Bearer " + token);
+            }
             conn.setConnectTimeout(2500);
             conn.setReadTimeout(2500);
             int code = conn.getResponseCode();

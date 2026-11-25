@@ -307,10 +307,12 @@
       </div>
 
       <div class="card">
-        <div class="card-hdr"><span class="card-title">PC Server & Call Rules</span></div>
+        <div class="card-hdr"><span class="card-title">PC / Vercel Cloud Server Link</span></div>
         <div style="display:flex;flex-direction:column;gap:10px;">
-          <label style="font-size:12px;color:var(--muted);">PC Gateway URL (Wi-Fi Local IP)</label>
+          <label style="font-size:12px;color:var(--muted);">Gateway or Vercel Cloud URL (Wi-Fi IP or https://...vercel.app)</label>
           <input id="cfgServerUrl" class="txt-input" value="http://192.168.11.146:8765">
+          <label style="font-size:12px;color:var(--muted);">Cloud Secret Token (Optional for Local Wi-Fi, Required on Vercel)</label>
+          <input id="cfgCloudToken" type="password" class="txt-input" placeholder="PAIGEN_CLOUD_TOKEN">
           <label style="display:flex;align-items:center;gap:8px;font-size:13px;">
             <input type="checkbox" id="cfgAutoAsk" checked> Ask "Should I talk?" on incoming calls
           </label>
@@ -374,11 +376,24 @@
   <script>
     const hasNative = typeof window.PaiGenNative !== 'undefined';
     let SERVER_URL = 'http://192.168.11.146:8765';
+    let CLOUD_TOKEN = '';
     let AUTO_ASK = true;
     let PREF_LANG = 'auto';
     let BUSY_MODE = false;
     let BUSY_TIMEOUT = 8;
     let FORWARD_NUM = '';
+
+    // Automatically attach Bearer Token to every PC/Vercel request
+    const _origFetch = window.fetch.bind(window);
+    window.fetch = function(input, init = {}) {
+      if (CLOUD_TOKEN) {
+        init.headers = Object.assign({}, init.headers || {}, {
+          'Authorization': 'Bearer ' + CLOUD_TOKEN,
+          'X-PaiGen-Token': CLOUD_TOKEN
+        });
+      }
+      return _origFetch(input, init);
+    };
     let isSpeaking = false;
     let isListening = false;
     let listenMode = 'main'; // 'main' or 'caller'
@@ -479,6 +494,7 @@
         try {
           const cfg = JSON.parse(PaiGenNative.getConfigJson());
           if (cfg.server_url) SERVER_URL = cfg.server_url;
+          CLOUD_TOKEN = cfg.cloud_token || '';
           AUTO_ASK = cfg.auto_ask_calls !== false;
           PREF_LANG = cfg.preferred_lang || 'auto';
           BUSY_MODE = !!cfg.busy_mode;
@@ -489,6 +505,7 @@
         SERVER_URL = window.location.origin;
       }
       document.getElementById('cfgServerUrl').value = SERVER_URL;
+      document.getElementById('cfgCloudToken').value = CLOUD_TOKEN;
       document.getElementById('cfgAutoAsk').checked = AUTO_ASK;
       document.getElementById('cfgPrefLang').value = PREF_LANG;
       document.getElementById('cfgBusyTimeout').value = String(BUSY_TIMEOUT);
@@ -543,12 +560,18 @@
 
     function saveSettings() {
       SERVER_URL = document.getElementById('cfgServerUrl').value.trim().replace(/\/+$/, '');
+      CLOUD_TOKEN = document.getElementById('cfgCloudToken').value.trim();
       AUTO_ASK = document.getElementById('cfgAutoAsk').checked;
       PREF_LANG = document.getElementById('cfgPrefLang').value;
       if (hasNative) {
-        PaiGenNative.saveConfig(SERVER_URL, AUTO_ASK, PREF_LANG);
+        if (PaiGenNative.saveConfigWithToken) {
+          PaiGenNative.saveConfigWithToken(SERVER_URL, CLOUD_TOKEN, AUTO_ASK, PREF_LANG);
+        } else {
+          PaiGenNative.saveConfig(SERVER_URL, AUTO_ASK, PREF_LANG);
+        }
       }
       pingServer();
+      loadPcAudioDevices();
     }
 
     async function pingServer() {
@@ -851,7 +874,18 @@
 
     // ─── 6. Remote PC Controls ─────────────────────────────────────────────────
     function refreshScreen() {
-      document.getElementById('pcScreenImg').src = SERVER_URL + '/api/screen?t=' + Date.now();
+      const tokParam = CLOUD_TOKEN ? '&token=' + encodeURIComponent(CLOUD_TOKEN) : '';
+      if (SERVER_URL.includes('vercel.app') || tokParam) {
+        fetch(SERVER_URL + '/api/pc/input', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ input_type: 'capture_screen' })
+        }).catch(() => {}).finally(() => {
+          document.getElementById('pcScreenImg').src = SERVER_URL + '/api/screen?t=' + Date.now() + tokParam;
+        });
+      } else {
+        document.getElementById('pcScreenImg').src = SERVER_URL + '/api/screen?t=' + Date.now();
+      }
     }
 
     function toggleAutoScreen() {

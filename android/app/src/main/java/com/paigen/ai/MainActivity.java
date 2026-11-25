@@ -224,6 +224,7 @@ public class MainActivity extends Activity {
             try {
                 JSONObject o = new JSONObject();
                 o.put("server_url", prefs.getString("server_url", "http://192.168.11.146:8765"));
+                o.put("cloud_token", prefs.getString("cloud_token", ""));
                 o.put("auto_ask_calls", prefs.getBoolean("auto_ask_calls", true));
                 o.put("preferred_lang", prefs.getString("preferred_lang", "auto"));
                 o.put("busy_mode", prefs.getBoolean("busy_mode", false));
@@ -237,9 +238,15 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void saveConfig(String serverUrl, boolean autoAskCalls, String preferredLang) {
+            saveConfigWithToken(serverUrl, "", autoAskCalls, preferredLang);
+        }
+
+        @JavascriptInterface
+        public void saveConfigWithToken(String serverUrl, String cloudToken, boolean autoAskCalls, String preferredLang) {
             SharedPreferences prefs = getSharedPreferences("paigen_prefs", MODE_PRIVATE);
             prefs.edit()
                 .putString("server_url", serverUrl)
+                .putString("cloud_token", cloudToken == null ? "" : cloudToken.trim())
                 .putBoolean("auto_ask_calls", autoAskCalls)
                 .putString("preferred_lang", preferredLang)
                 .apply();

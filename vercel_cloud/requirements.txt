@@ -1,0 +1,1 @@
+# Pure Python 3.12 stdlib serverless runtime for fast <10s Vercel builds (0 bloat)
