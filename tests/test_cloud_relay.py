@@ -45,7 +45,7 @@ class TestVercelCloudRelay(unittest.TestCase):
                 urllib.request.urlopen(f"{self.base_url}/api/pc/stats", timeout=4)
             self.assertEqual(ctx.exception.code, 401)
 
-            # 3. Authenticated chat falls back to Cloud Brain when PC is offline
+            # 3. Authenticated chat falls back to Cloud Brain when PC is offline + emits logs
             req = urllib.request.Request(
                 f"{self.base_url}/api/chat",
                 data=json.dumps({"query": "Hello PaiGen kya haal hai"}).encode("utf-8"),
@@ -54,8 +54,21 @@ class TestVercelCloudRelay(unittest.TestCase):
             )
             with urllib.request.urlopen(req, timeout=5) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
-                self.assertEqual(data.get("source"), "vercel_cloud")
-                self.assertIn("Vercel", data.get("reply", ""))
+                self.assertEqual(data.get("source"), "cloud_server")
+                self.assertIn("ऑनलाइन", data.get("reply", ""))
+
+            # 4. Verify structured /api/logs records auth & chat telemetry
+            req_logs = urllib.request.Request(
+                f"{self.base_url}/api/logs?limit=20",
+                headers={"Authorization": "Bearer secret123"},
+            )
+            with urllib.request.urlopen(req_logs, timeout=4) as resp:
+                logs_body = json.loads(resp.read().decode("utf-8"))
+                self.assertEqual(logs_body.get("status"), "success")
+                self.assertTrue(len(logs_body.get("logs", [])) >= 2)
+                cats = {entry["category"] for entry in logs_body["logs"]}
+                self.assertIn("AUTH", cats)
+                self.assertIn("CHAT", cats)
 
     def test_uplink_roundtrip_pc_control_and_screen(self):
         vercel_api._MEM_KV.clear()

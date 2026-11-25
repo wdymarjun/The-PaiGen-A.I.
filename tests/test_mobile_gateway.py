@@ -6,6 +6,7 @@ Architect: Arjun Singh
 import asyncio
 import io
 import json
+import re
 import unittest
 from unittest.mock import patch, MagicMock
 
@@ -264,11 +265,14 @@ class TestGatewayEndpoints(AioHTTPTestCase):
         self.assertIn("<Gather", xml0)
         self.assertIn('language="hi-IN"', xml0)
         self.assertIn("/api/audio/tts?text=", xml0)
+        m_cid = re.search(r"call_id=(\d+)", xml0)
+        self.assertIsNotNone(m_cid)
+        cid = m_cid.group(1)
 
         # Follow-up Turn: Vague caller -> keeps Gather loop open
         resp1 = await self.client.request(
             "POST",
-            "/api/telephony/twiml_turn?call_id=1",
+            f"/api/telephony/twiml_turn?call_id={cid}",
             data={"From": "+919811112222", "SpeechResult": "Arjun se baat karni thi, phone do unko"},
         )
         self.assertEqual(resp1.status, 200)
@@ -279,7 +283,7 @@ class TestGatewayEndpoints(AioHTTPTestCase):
         # Follow-up Turn: Scam/OTP -> terminates with Hangup and no Gather
         resp2 = await self.client.request(
             "POST",
-            "/api/telephony/twiml_turn?call_id=1",
+            f"/api/telephony/twiml_turn?call_id={cid}",
             data={"From": "+919811112222", "SpeechResult": "Sir bank KYC update ke liye OTP batao"},
         )
         self.assertEqual(resp2.status, 200)

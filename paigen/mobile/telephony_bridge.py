@@ -499,7 +499,7 @@ class TelephonyBridge:
                             parsed["psych"] = "PANIC"
                             parsed["action"] = "ESCALATE"
                         elif is_vague or asking_for_details:
-                            parsed["tier"] = max(parsed["tier"], 3)
+                            parsed["tier"] = 3
                             parsed["psych"] = "VAGUE"
                             parsed["action"] = "EXTRACT"
                         return parsed

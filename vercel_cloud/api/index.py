@@ -14,11 +14,14 @@ Pure-Python zero-dependency Vercel Serverless API (`api/index.py`) enabling:
    for cross-invocation persistence on Vercel Serverless, with warm in-memory fallback.
 """
 
-from http.server import BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import base64
+import datetime
 import hmac
 import json
 import os
+import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -96,6 +99,38 @@ class StateStore:
 
 STORE = StateStore()
 
+# ─── Live Structured Server & PC-Bridge Logs System ──────────────────────────
+_LOG_LOCK = threading.Lock()
+_LOG_FILE = os.getenv("PAIGEN_LOG_FILE", "")
+
+
+def emit_log(level: str, category: str, message: str, meta: Optional[Dict[str, Any]] = None):
+    """Records structured log entries to Render stdout/stderr, memory ring buffer, and optional JSONL file."""
+    ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    entry = {
+        "ts": ts,
+        "epoch": time.time(),
+        "level": level.upper(),
+        "category": category,
+        "message": message,
+        "meta": meta or {},
+    }
+    line = f"[{ts}] [{entry['level']}] [{category}] {message}"
+    if meta:
+        line += f" | {json.dumps(meta, ensure_ascii=False)}"
+    print(line, flush=True)
+
+    with _LOG_LOCK:
+        logs = STORE.get_json("paigen:logs") or []
+        logs.insert(0, entry)
+        STORE.set_json("paigen:logs", logs[:150], ex=86400)
+        if _LOG_FILE:
+            try:
+                with open(_LOG_FILE, "a", encoding="utf-8") as lf:
+                    lf.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            except Exception:
+                pass
+
 
 # ─── Cloud Fallback Brain (Active When PC Uplink Is Offline) ──────────────────
 V5_SYSTEM_PROMPT = (
@@ -164,11 +199,11 @@ def _cloud_llm_reply(query: str) -> str:
     )
     if has_hi:
         return (
-            "नमस्ते अर्जुन, आपका Vercel क्लाउड सर्वर ऑनलाइन है। अभी आपका पीसी अपलिंक ऑफलाइन है—"
+            "नमस्ते अर्जुन, आपका PaiGen क्लाउड सर्वर ऑनलाइन है। अभी आपका पीसी अपलिंक ऑफलाइन है—"
             "पूर्ण लोकल AI और डेस्कटॉप कंट्रोल के लिए पीसी पर `run_cloud_uplink.bat` चलाएं।"
         )
     return (
-        "PaiGen Cloud Server is online on Vercel. Your PC Uplink is currently offline—"
+        "PaiGen Cloud Server is online. Your PC Uplink is currently offline—"
         "launch `run_cloud_uplink.bat` on your PC for full workstation control and local Ollama AI."
     )
 
@@ -262,6 +297,14 @@ CLOUD_HTML = """<!DOCTYPE html>
     </div>
   </div>
 
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <div class="title">Live Server, PC & Call Logs</div>
+      <button class="ghost" style="padding:5px 10px;font-size:11px;" onclick="refreshLogs()">Refresh Logs</button>
+    </div>
+    <pre id="logsBox" style="background:#050810;border:1px solid var(--border);border-radius:10px;padding:10px;font-size:11px;color:#94A3B8;max-height:190px;overflow-y:auto;white-space:pre-wrap;font-family:monospace;">Loading logs...</pre>
+  </div>
+
   <script>
     const tokInp = document.getElementById('tok');
     tokInp.value = localStorage.getItem('paigen_cloud_tok') || '';
@@ -306,7 +349,17 @@ CLOUD_HTML = """<!DOCTYPE html>
       const r = await fetch('/api/screen?t='+Date.now(), { headers:hdrs() });
       if (r.ok) { const blob = await r.blob(); document.getElementById('scrImg').src = URL.createObjectURL(blob); }
     }
-    pollStats(); setInterval(pollStats, 8000);
+    async function refreshLogs() {
+      try {
+        const r = await fetch('/api/logs?limit=40', { headers: hdrs() });
+        if (!r.ok) return;
+        const d = await r.json();
+        const box = document.getElementById('logsBox');
+        if (!d.logs || !d.logs.length) { box.innerText = 'No logs recorded yet.'; return; }
+        box.innerText = d.logs.map(l => `[${l.ts}] [${l.level}] [${l.category}] ${l.message}`).join('\n');
+      } catch(e) {}
+    }
+    pollStats(); refreshLogs(); setInterval(pollStats, 8000); setInterval(refreshLogs, 10000);
   </script>
 </body>
 </html>
@@ -372,14 +425,22 @@ class handler(BaseHTTPRequestHandler):
         if path == "/api/ping":
             self._send_json({
                 "status": "online",
-                "service": "PaiGen AI Vercel Cloud Relay",
+                "service": "PaiGen AI Cloud Relay",
+                "runtime": os.getenv("PAIGEN_RUNTIME", "vercel"),
                 "pc_online": _is_pc_online(),
-                "persistence": "upstash_redis" if STORE.use_redis else "memory_ephemeral",
+                "persistence": "upstash_redis" if STORE.use_redis else "memory_ring",
             })
             return
 
         if not self._authorized():
+            emit_log("WARN", "AUTH", f"Blocked unauthorized GET {path}")
             self._send_json({"status": "error", "message": "Unauthorized: invalid PAIGEN_CLOUD_TOKEN"}, status=401)
+            return
+
+        if path == "/api/logs":
+            limit = int((qs.get("limit") or ["50"])[0] or 50)
+            logs = STORE.get_json("paigen:logs") or []
+            self._send_json({"status": "success", "count": len(logs[:limit]), "logs": logs[:limit]})
             return
 
         if path == "/api/pc/stats":
@@ -444,15 +505,21 @@ class handler(BaseHTTPRequestHandler):
         path = parsed.path
 
         if not self._authorized():
+            emit_log("WARN", "AUTH", f"Blocked unauthorized POST {path}")
             self._send_json({"status": "error", "message": "Unauthorized: invalid PAIGEN_CLOUD_TOKEN"}, status=401)
             return
 
         data = self._read_json()
+        is_render = os.getenv("PAIGEN_RUNTIME", "").lower() == "render"
+        wait_long = 22.0 if is_render else 8.5
 
         # --- PC Uplink Worker Endpoints ---
         if path == "/api/uplink/heartbeat":
+            was_online = _is_pc_online()
             data["timestamp"] = time.time()
             STORE.set_json("paigen:pc_heartbeat", data, ex=60)
+            if not was_online:
+                emit_log("INFO", "UPLINK", f"PC Uplink ONLINE: {data.get('hostname', 'Workstation')}")
             if "audio_devices" in data:
                 STORE.set_json("paigen:audio_devices", data["audio_devices"], ex=120)
             if "audio_bridge_status" in data:
@@ -481,23 +548,29 @@ class handler(BaseHTTPRequestHandler):
             if not query:
                 self._send_json({"status": "error", "message": "Empty query"}, status=400)
                 return
-            pc_res = _dispatch_to_pc_and_wait("chat", {"query": query}, wait_sec=8.5)
+            emit_log("INFO", "CHAT", f"Query received ({len(query)} chars)", {"pc_online": _is_pc_online()})
+            pc_res = _dispatch_to_pc_and_wait("chat", {"query": query}, wait_sec=wait_long)
             if pc_res is not None:
+                emit_log("INFO", "CHAT", "Served reply from connected PC Ollama brain")
                 self._send_json(pc_res)
                 return
-            self._send_json({"status": "success", "reply": _cloud_llm_reply(query), "source": "vercel_cloud"})
+            reply = _cloud_llm_reply(query)
+            emit_log("INFO", "CHAT", "Served reply from Cloud fallback brain")
+            self._send_json({"status": "success", "reply": reply, "source": "cloud_server"})
             return
 
         if path == "/api/action":
-            pc_res = _dispatch_to_pc_and_wait("action", data, wait_sec=6.0)
+            emit_log("INFO", "PC_ACTION", f"Action requested: {data.get('action')}", data)
+            pc_res = _dispatch_to_pc_and_wait("action", data, wait_sec=10.0 if is_render else 6.0)
             if pc_res is not None:
                 self._send_json(pc_res)
             else:
+                emit_log("WARN", "PC_ACTION", f"PC Uplink offline/timeout for action {data.get('action')}")
                 self._send_json({"status": "error", "message": "PC Uplink is offline or timed out."}, status=503)
             return
 
         if path == "/api/pc/input":
-            pc_res = _dispatch_to_pc_and_wait("pc_input", data, wait_sec=5.0)
+            pc_res = _dispatch_to_pc_and_wait("pc_input", data, wait_sec=8.0 if is_render else 5.0)
             if pc_res is not None:
                 self._send_json(pc_res)
             else:
@@ -505,7 +578,8 @@ class handler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/telephony/session/start":
-            pc_res = _dispatch_to_pc_and_wait("telephony_start", data, wait_sec=5.0)
+            emit_log("INFO", "CALL", f"Call session started for {data.get('caller_name', 'Caller')}")
+            pc_res = _dispatch_to_pc_and_wait("telephony_start", data, wait_sec=8.0 if is_render else 5.0)
             if pc_res is not None:
                 self._send_json({"status": "success", "data": pc_res})
             else:
@@ -520,7 +594,8 @@ class handler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/telephony/converse":
-            pc_res = _dispatch_to_pc_and_wait("telephony_converse", data, wait_sec=8.5)
+            emit_log("INFO", "CALL", f"Caller speech turn from {data.get('caller_name', 'Caller')}")
+            pc_res = _dispatch_to_pc_and_wait("telephony_converse", data, wait_sec=wait_long)
             if pc_res is not None:
                 self._send_json({"status": "success", "data": pc_res})
             else:
@@ -542,18 +617,37 @@ class handler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/audio/bridge/start":
-            pc_res = _dispatch_to_pc_and_wait("audio_bridge_start", data, wait_sec=6.0)
+            emit_log("INFO", "AUDIO_BRIDGE", "Bluetooth/PC Call Bridge start requested")
+            pc_res = _dispatch_to_pc_and_wait("audio_bridge_start", data, wait_sec=8.0)
             self._send_json(pc_res or {"status": "error", "message": "PC Uplink offline."})
             return
 
         if path == "/api/audio/bridge/stop":
-            pc_res = _dispatch_to_pc_and_wait("audio_bridge_stop", data, wait_sec=6.0)
+            emit_log("INFO", "AUDIO_BRIDGE", "Bluetooth/PC Call Bridge stop requested")
+            pc_res = _dispatch_to_pc_and_wait("audio_bridge_stop", data, wait_sec=8.0)
             self._send_json(pc_res or {"status": "error", "message": "PC Uplink offline."})
             return
 
         if path == "/api/audio/bridge/test_speak":
-            pc_res = _dispatch_to_pc_and_wait("audio_bridge_test_speak", data, wait_sec=6.0)
+            pc_res = _dispatch_to_pc_and_wait("audio_bridge_test_speak", data, wait_sec=8.0)
             self._send_json(pc_res or {"status": "error", "message": "PC Uplink offline."})
             return
 
         self._send_json({"status": "error", "message": f"Unknown route {path}"}, status=404)
+
+
+def run_server(host: str = "0.0.0.0", port: Optional[int] = None):
+    """Starts continuous multi-threaded HTTP server for Render / container hosting."""
+    bind_port = int(port or os.getenv("PORT", "8765"))
+    srv = ThreadingHTTPServer((host, bind_port), handler)
+    emit_log(
+        "INFO",
+        "SYSTEM",
+        f"PaiGen AI Cloud Server started on http://{host}:{bind_port}",
+        {"runtime": os.getenv("PAIGEN_RUNTIME", "render"), "auth": bool(os.getenv("PAIGEN_CLOUD_TOKEN"))},
+    )
+    srv.serve_forever()
+
+
+if __name__ == "__main__":
+    run_server()
