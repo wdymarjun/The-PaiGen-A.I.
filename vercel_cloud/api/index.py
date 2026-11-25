@@ -850,6 +850,33 @@ class handler(BaseHTTPRequestHandler):
                 self._send_json({"status": "error", "message": str(e)}, status=500)
             return
 
+        if path == "/api/app/version":
+            self._send_json(_get_app_version_manifest())
+            return
+
+        if path == "/api/app/bundle":
+            bundle_path = _REPO_ROOT / "android" / "app" / "src" / "main" / "assets" / "index.html"
+            if not bundle_path.exists():
+                self._send_json({"status": "error", "message": "OTA bundle not found"}, status=404)
+                return
+            self._send_bytes(bundle_path.read_bytes(), "text/html; charset=utf-8")
+            return
+
+        if path == "/api/app/apk":
+            apk_path = _REPO_ROOT / "android" / "dist" / "PaiGen-AI.apk"
+            if not apk_path.exists():
+                self._send_json({"status": "error", "message": "APK binary not found"}, status=404)
+                return
+            data = apk_path.read_bytes()
+            self.send_response(200)
+            self._cors_headers()
+            self.send_header("Content-Type", "application/vnd.android.package-archive")
+            self.send_header("Content-Disposition", 'attachment; filename="PaiGen-AI.apk"')
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
+
         if not self._authorized():
             emit_log("WARN", "AUTH", f"Blocked unauthorized GET {path}")
             self._send_json({"status": "error", "message": "Unauthorized: invalid PAIGEN_CLOUD_TOKEN"}, status=401)
@@ -938,33 +965,6 @@ class handler(BaseHTTPRequestHandler):
         if path == "/api/audio/bridge/status":
             st = STORE.get_json("paigen:audio_bridge_status") or {"active": False}
             self._send_json({"status": "success", "bridge": st})
-            return
-
-        if path == "/api/app/version":
-            self._send_json(_get_app_version_manifest())
-            return
-
-        if path == "/api/app/bundle":
-            bundle_path = _REPO_ROOT / "android" / "app" / "src" / "main" / "assets" / "index.html"
-            if not bundle_path.exists():
-                self._send_json({"status": "error", "message": "OTA bundle not found"}, status=404)
-                return
-            self._send_bytes(bundle_path.read_bytes(), "text/html; charset=utf-8")
-            return
-
-        if path == "/api/app/apk":
-            apk_path = _REPO_ROOT / "android" / "dist" / "PaiGen-AI.apk"
-            if not apk_path.exists():
-                self._send_json({"status": "error", "message": "APK binary not found"}, status=404)
-                return
-            data = apk_path.read_bytes()
-            self.send_response(200)
-            self._cors_headers()
-            self.send_header("Content-Type", "application/vnd.android.package-archive")
-            self.send_header("Content-Disposition", 'attachment; filename="PaiGen-AI.apk"')
-            self.send_header("Content-Length", str(len(data)))
-            self.end_headers()
-            self.wfile.write(data)
             return
 
         self._send_json({"status": "error", "message": f"Unknown route {path}"}, status=404)
@@ -1260,7 +1260,7 @@ def _get_app_version_manifest() -> Dict[str, Any]:
     }
     if ver_path.exists():
         try:
-            manifest.update(json.loads(ver_path.read_text(encoding="utf-8")))
+            manifest.update(json.loads(ver_path.read_text(encoding="utf-8-sig")))
         except Exception:
             pass
     # Always compute live bundle hash so index.html edits push immediately over OTA

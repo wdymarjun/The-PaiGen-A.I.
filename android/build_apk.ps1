@@ -1,4 +1,4 @@
-# ==============================================================================
+﻿# ==============================================================================
 # PaiGen AI — Pure Android SDK APK Compiler & Signer (Zero-Gradle Fast Build)
 # Uses Android SDK (aapt2, d8, zipalign, apksigner) + Android Studio JBR JDK
 # ==============================================================================
@@ -91,7 +91,8 @@ $Vn = if ($ManifestTxt -match 'versionName="([^"]+)"') { $Matches[1] } else { "5
 $BundleHash = (Get-FileHash (Join-Path $AssetsDir "index.html") -Algorithm SHA256).Hash.ToLower()
 $ApkHash = (Get-FileHash $FinalApk -Algorithm SHA256).Hash.ToLower()
 $ApkSize = (Get-Item $FinalApk).Length
-@{ version_code = $Vc; version_name = $Vn; bundle_sha256 = $BundleHash; apk_sha256 = $ApkHash; apk_size = $ApkSize } | ConvertTo-Json | Set-Content -Path $VersionJsonPath -Encoding UTF8
+$JsonStr = @{ version_code = $Vc; version_name = $Vn; bundle_sha256 = $BundleHash; apk_sha256 = $ApkHash; apk_size = $ApkSize } | ConvertTo-Json
+[System.IO.File]::WriteAllText($VersionJsonPath, $JsonStr, (New-Object System.Text.UTF8Encoding $false))
 
 $SizeMB = [math]::Round((Get-Item $FinalApk).Length / 1KB, 1)
 Write-Host "`n[+] SUCCESS! Built & verified signed APK: $FinalApk ($SizeMB KB)"

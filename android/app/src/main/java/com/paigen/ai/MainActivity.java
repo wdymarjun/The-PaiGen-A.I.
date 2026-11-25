@@ -54,6 +54,7 @@ public class MainActivity extends Activity {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private boolean pageLoaded = false;
     private Intent pendingCallIntent = null;
+    private String pendingApkSha = "";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -69,6 +70,19 @@ public class MainActivity extends Activity {
         checkAndApplyServerUpdates();
 
         handleIncomingIntent(getIntent());
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (!pendingApkSha.isEmpty()) {
+            File apkFile = new File(getFilesDir(), "ota/PaiGen-Update.apk");
+            if (apkFile.exists() && (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || getPackageManager().canRequestPackageInstalls())) {
+                String sha = pendingApkSha;
+                pendingApkSha = "";
+                launchApkInstaller(sha);
+            }
+        }
     }
 
     @Override
@@ -352,9 +366,8 @@ public class MainActivity extends Activity {
                             try (FileOutputStream fos = new FileOutputStream(apkFile)) {
                                 fos.write(apkBytes);
                             }
-                            prefs.edit().putString("prompted_apk_sha256", actualApkHash).apply();
-                            notifyUpdateUi("apk_ready", "PaiGen APK v" + serverVerName + " ready — tap Update!");
-                            mainHandler.post(() -> launchApkInstaller());
+                            notifyUpdateUi("apk_ready", "PaiGen APK v" + serverVerName + " ready — installing...");
+                            mainHandler.post(() -> launchApkInstaller(actualApkHash));
                         }
                     }
                 }
@@ -364,13 +377,18 @@ public class MainActivity extends Activity {
         }).start();
     }
 
-    private void launchApkInstaller() {
+    private void launchApkInstaller(String apkSha) {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !getPackageManager().canRequestPackageInstalls()) {
+                pendingApkSha = apkSha;
                 Intent perm = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName()));
                 startActivity(perm);
                 return;
             }
+            getSharedPreferences("paigen_prefs", MODE_PRIVATE)
+                .edit()
+                .putString("prompted_apk_sha256", apkSha)
+                .apply();
             Uri apkUri = Uri.parse("content://com.paigen.ai.apkprovider/update.apk");
             Intent intent = new Intent(Intent.ACTION_VIEW);
             intent.setDataAndType(apkUri, "application/vnd.android.package-archive");
