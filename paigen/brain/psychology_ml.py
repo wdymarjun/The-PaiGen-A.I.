@@ -413,11 +413,11 @@ class PsychologyMLClassifier:
         y_la_va = np.array([lang_map[r["language"]] for r in val_rows], dtype=np.int64)
         Y_af_va = np.array([r["affect_vector"] for r in val_rows], dtype=np.float32)
 
-        # Train validation split models to measure honest generalization
-        W_st, b_st = self._train_softmax_head(X_tr, y_st_tr, len(PSYCH_STATES), epochs=320, lr=0.25, l2=1.2e-3)
-        W_ti, b_ti = self._train_softmax_head(X_tr, y_ti_tr, len(TRIAGE_TIERS), epochs=320, lr=0.25, l2=1.2e-3)
-        W_la, b_la = self._train_softmax_head(X_tr, y_la_tr, len(LANG_CLASSES), epochs=260, lr=0.25, l2=1.2e-3)
-        W_af, b_af = self._train_ridge_head(X_tr, Y_af_tr, alpha=0.8)
+        # Train validation split models with tight L2 regularization
+        W_st, b_st = self._train_softmax_head(X_tr, y_st_tr, len(PSYCH_STATES), epochs=380, lr=0.22, l2=1.5e-3)
+        W_ti, b_ti = self._train_softmax_head(X_tr, y_ti_tr, len(TRIAGE_TIERS), epochs=380, lr=0.22, l2=1.5e-3)
+        W_la, b_la = self._train_softmax_head(X_tr, y_la_tr, len(LANG_CLASSES), epochs=300, lr=0.22, l2=1.5e-3)
+        W_af, b_af = self._train_ridge_head(X_tr, Y_af_tr, alpha=0.6)
 
         st_acc_val = float(np.mean(np.argmax(X_va @ W_st + b_st, axis=1) == y_st_va))
         ti_acc_val = float(np.mean(np.argmax(X_va @ W_ti + b_ti, axis=1) == y_ti_va))
@@ -433,10 +433,10 @@ class PsychologyMLClassifier:
         y_la_all = np.array([lang_map[r["language"]] for r in data], dtype=np.int64)
         Y_af_all = np.array([r["affect_vector"] for r in data], dtype=np.float32)
 
-        self.W_state, self.b_state = self._train_softmax_head(X_all, y_st_all, len(PSYCH_STATES), epochs=340, lr=0.25, l2=1.2e-3)
-        self.W_triage, self.b_triage = self._train_softmax_head(X_all, y_ti_all, len(TRIAGE_TIERS), epochs=340, lr=0.25, l2=1.2e-3)
-        self.W_lang, self.b_lang = self._train_softmax_head(X_all, y_la_all, len(LANG_CLASSES), epochs=280, lr=0.25, l2=1.2e-3)
-        self.W_affect, self.b_affect = self._train_ridge_head(X_all, Y_af_all, alpha=0.8)
+        self.W_state, self.b_state = self._train_softmax_head(X_all, y_st_all, len(PSYCH_STATES), epochs=400, lr=0.22, l2=1.5e-3)
+        self.W_triage, self.b_triage = self._train_softmax_head(X_all, y_ti_all, len(TRIAGE_TIERS), epochs=400, lr=0.22, l2=1.5e-3)
+        self.W_lang, self.b_lang = self._train_softmax_head(X_all, y_la_all, len(LANG_CLASSES), epochs=320, lr=0.22, l2=1.5e-3)
+        self.W_affect, self.b_affect = self._train_ridge_head(X_all, Y_af_all, alpha=0.6)
         self.is_trained = True
 
         st_acc_tr = float(np.mean(np.argmax(X_all @ self.W_state + self.b_state, axis=1) == y_st_all))
