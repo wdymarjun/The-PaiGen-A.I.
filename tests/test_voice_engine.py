@@ -34,6 +34,9 @@ class TestVoiceEngine(unittest.TestCase):
         if mp3 is not None:
             self.assertIsInstance(mp3, bytes)
             self.assertTrue(len(mp3) > 0)
+            pcm = engine.decode_mp3_to_pcm(mp3, target_rate=16000, target_channels=1)
+            self.assertIsNotNone(pcm)
+            self.assertTrue(len(pcm) > 100)
 
     def test_voice_engine_singleton(self):
         e1 = VoiceEngine.get_instance()

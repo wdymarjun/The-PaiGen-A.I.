@@ -203,6 +203,8 @@
           <button class="btn btn-cyan" id="btnMicMain" onclick="listenMainQuery()">🎤 Talk to PaiGen</button>
           <button class="btn btn-ghost" onclick="switchTab('tab-pc')">🖥 Control PC</button>
         </div>
+        <button class="btn btn-emerald btn-sm" id="btnBtBridge" style="width:100%;margin-top:8px;" onclick="toggleBtAudioBridge()">🎧 Start ₹0 PC Bluetooth Call Bridge (Vivo V29)</button>
+        <div id="btBridgeStatusTxt" style="font-size:11px;color:var(--muted);margin-top:6px;">Idle • Pair Vivo V29 via Windows Bluetooth to route call voice cleanly.</div>
       </div>
 
       <!-- Main Assistant Chat -->
@@ -318,6 +320,20 @@
             <option value="en">Always English</option>
           </select>
           <button class="btn btn-emerald" onclick="saveSettings()">Save Settings & Connect</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-hdr">
+          <span class="card-title">₹0 PC Bluetooth / Cable Audio Routing</span>
+          <button class="btn btn-ghost btn-sm" onclick="loadPcAudioDevices()">Scan Devices</button>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <label style="font-size:11px;color:var(--muted);">Caller Audio Input (Vivo V29 Hands-Free / Cable)</label>
+          <select id="cfgBtInput" class="txt-input"></select>
+          <label style="font-size:11px;color:var(--muted);">PaiGen Voice Output (Into Call Mic)</label>
+          <select id="cfgBtOutput" class="txt-input"></select>
+          <button class="btn btn-cyan btn-sm" onclick="testBtSpeak()">🔊 Test Hindi Voice Into Call Channel</button>
         </div>
       </div>
 
@@ -455,7 +471,7 @@
       }
       if (id === 'tab-pc') refreshScreen();
       if (id === 'tab-vault') loadVault();
-      if (id === 'tab-mind') refreshPermissions();
+      if (id === 'tab-mind') { refreshPermissions(); loadPcAudioDevices(); }
     }
 
     function loadConfig() {
@@ -1005,8 +1021,81 @@
     function grantFullScreenCalls() { if (hasNative && PaiGenNative.requestFullScreenIntentPermission) PaiGenNative.requestFullScreenIntentPermission(); }
     function openVivoSettings() { if (hasNative && PaiGenNative.openAppDetailsSettings) PaiGenNative.openAppDetailsSettings(); }
 
+    let btBridgeActive = false;
+
+    async function loadPcAudioDevices() {
+      const inSel = document.getElementById('cfgBtInput');
+      const outSel = document.getElementById('cfgBtOutput');
+      try {
+        const res = await fetch(SERVER_URL + '/api/audio/devices');
+        const data = await res.json();
+        inSel.innerHTML = '';
+        outSel.innerHTML = '';
+        (data.inputs || []).forEach(d => {
+          const opt = document.createElement('option');
+          opt.value = d.id;
+          opt.innerText = `[${d.id}] ${d.name}`;
+          if (data.auto_detected && data.auto_detected.input_id === d.id) opt.selected = true;
+          inSel.appendChild(opt);
+        });
+        (data.outputs || []).forEach(d => {
+          const opt = document.createElement('option');
+          opt.value = d.id;
+          opt.innerText = `[${d.id}] ${d.name}`;
+          if (data.auto_detected && data.auto_detected.output_id === d.id) opt.selected = true;
+          outSel.appendChild(opt);
+        });
+      } catch (e) {}
+    }
+
+    async function testBtSpeak() {
+      const outId = parseInt(document.getElementById('cfgBtOutput').value, 10);
+      await fetch(SERVER_URL + '/api/audio/bridge/test_speak', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ output_device: isNaN(outId) ? null : outId })
+      });
+    }
+
+    async function toggleBtAudioBridge() {
+      const btn = document.getElementById('btnBtBridge');
+      const txt = document.getElementById('btBridgeStatusTxt');
+      try {
+        if (!btBridgeActive) {
+          const inSel = document.getElementById('cfgBtInput');
+          const outSel = document.getElementById('cfgBtOutput');
+          const inId = inSel && inSel.value ? parseInt(inSel.value, 10) : null;
+          const outId = outSel && outSel.value ? parseInt(outSel.value, 10) : null;
+          const res = await fetch(SERVER_URL + '/api/audio/bridge/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ input_device: inId, output_device: outId, preferred_lang: PREF_LANG === 'en' ? 'en' : 'hi' })
+          });
+          const data = await res.json();
+          if (data.status === 'error') {
+            txt.innerText = 'Error: ' + data.message;
+            return;
+          }
+          btBridgeActive = true;
+          btn.innerText = '⏹ Stop Bluetooth Call Bridge & Save';
+          btn.className = 'btn btn-rose btn-sm';
+          txt.innerText = `LIVE (${data.output_name}) • Talking & recording automatically...`;
+        } else {
+          await fetch(SERVER_URL + '/api/audio/bridge/stop', { method: 'POST' });
+          btBridgeActive = false;
+          btn.innerText = '🎧 Start ₹0 PC Bluetooth Call Bridge (Vivo V29)';
+          btn.className = 'btn btn-emerald btn-sm';
+          txt.innerText = 'Call saved cleanly to Vault.';
+          loadVault();
+        }
+      } catch (e) {
+        txt.innerText = 'PC Gateway unreachable on Wi-Fi.';
+      }
+    }
+
     loadConfig();
     pingServer();
+    loadPcAudioDevices();
     setInterval(pingServer, 12000);
   </script>
 </body>

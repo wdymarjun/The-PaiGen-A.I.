@@ -15,7 +15,7 @@ import os
 import re
 import threading
 import time
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 logger = logging.getLogger("PaiGen.Senses.VoiceEngine")
 
@@ -138,6 +138,106 @@ class VoiceEngine:
                 logger.debug(f"gTTS byte synthesis exception: {e}")
 
         return None
+
+    def decode_mp3_to_pcm(
+        self,
+        mp3_bytes: bytes,
+        target_rate: int = 16000,
+        target_channels: int = 1,
+    ) -> Optional[Any]:
+        """
+        Decodes in-memory MP3 bytes to a float32 NumPy array resampled & channel-matched
+        via bundled ffmpeg (zero temp files on disk) for direct Bluetooth HFP / VB-Cable routing.
+        """
+        if not mp3_bytes:
+            return None
+        try:
+            import subprocess
+            import numpy as np
+            import imageio_ffmpeg
+
+            ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+            cmd = [
+                ffmpeg_exe,
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-i",
+                "pipe:0",
+                "-f",
+                "f32le",
+                "-acodec",
+                "pcm_f32le",
+                "-ar",
+                str(int(target_rate)),
+                "-ac",
+                str(int(target_channels)),
+                "pipe:1",
+            ]
+            proc = subprocess.run(cmd, input=mp3_bytes, capture_output=True, timeout=15)
+            if proc.returncode != 0 or not proc.stdout:
+                return None
+            pcm = np.frombuffer(proc.stdout, dtype=np.float32)
+            if target_channels > 1:
+                pcm = pcm.reshape(-1, target_channels)
+            return pcm
+        except Exception as e:
+            logger.debug(f"FFmpeg in-memory MP3 decode error: {e}")
+            return None
+
+    def speak_to_device(
+        self,
+        text: str,
+        device_index: Optional[int] = None,
+        on_start: Optional[Callable[[], None]] = None,
+        on_end: Optional[Callable[[], None]] = None,
+    ) -> bool:
+        """
+        Synthesizes and plays PaiGen's voice directly into a specific Windows output device
+        (such as Vivo V29 Hands-Free HF Audio, VB-Audio Virtual Cable, or 3.5mm Jack).
+        """
+        clean = clean_text_for_speech(text)
+        if not clean:
+            return False
+
+        if device_index is None:
+            self.speak(clean, on_start=on_start, on_end=on_end)
+            return True
+
+        with self._lock:
+            self._is_speaking = True
+            if on_start:
+                try:
+                    on_start()
+                except Exception:
+                    pass
+
+            ok = False
+            try:
+                import sounddevice as sd
+
+                dev_info = sd.query_devices(int(device_index))
+                out_ch = max(1, min(2, int(dev_info.get("max_output_channels", 1))))
+                target_sr = int(dev_info.get("default_samplerate", 16000) or 16000)
+
+                mp3_bytes = self.synthesize_mp3_bytes(clean)
+                if mp3_bytes:
+                    pcm = self.decode_mp3_to_pcm(
+                        mp3_bytes, target_rate=target_sr, target_channels=out_ch
+                    )
+                    if pcm is not None and len(pcm) > 0:
+                        sd.play(pcm, samplerate=target_sr, device=int(device_index), blocking=True)
+                        ok = True
+            except Exception as e:
+                logger.warning(f"speak_to_device({device_index}) failed: {e}")
+
+            self._is_speaking = False
+            if on_end:
+                try:
+                    on_end()
+                except Exception:
+                    pass
+            return ok
 
     def speak(
         self,

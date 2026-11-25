@@ -646,6 +646,54 @@ async def handle_tts(request: web.Request) -> web.Response:
     return web.Response(body=mp3_data, content_type="audio/mpeg")
 
 
+async def handle_audio_devices(request: web.Request) -> web.Response:
+    """Lists PC audio devices and auto-detects paired smartphone HFP / VB-Cable bridges."""
+    from paigen.mobile.pc_audio_bridge import list_audio_devices
+    loop = asyncio.get_event_loop()
+    devs = await loop.run_in_executor(None, list_audio_devices)
+    return web.json_response({"status": "success", **devs})
+
+
+async def handle_audio_bridge_status(request: web.Request) -> web.Response:
+    from paigen.mobile.pc_audio_bridge import PCAudioCallBridge
+    return web.json_response({"status": "success", "bridge": PCAudioCallBridge.get_instance().get_status()})
+
+
+async def handle_audio_bridge_start(request: web.Request) -> web.Response:
+    from paigen.mobile.pc_audio_bridge import PCAudioCallBridge
+    data = await request.json() if request.can_read_body else {}
+    loop = asyncio.get_event_loop()
+    res = await loop.run_in_executor(
+        None,
+        PCAudioCallBridge.get_instance().start,
+        data.get("input_device"),
+        data.get("output_device"),
+        data.get("caller_id", "Bluetooth Caller"),
+        data.get("caller_name", "Vivo V29 Call"),
+        data.get("preferred_lang", "hi"),
+    )
+    await broadcast_ws_event("audio_bridge_started", res)
+    return web.json_response(res)
+
+
+async def handle_audio_bridge_stop(request: web.Request) -> web.Response:
+    from paigen.mobile.pc_audio_bridge import PCAudioCallBridge
+    loop = asyncio.get_event_loop()
+    res = await loop.run_in_executor(None, PCAudioCallBridge.get_instance().stop)
+    await broadcast_ws_event("audio_bridge_stopped", res)
+    return web.json_response(res)
+
+
+async def handle_audio_bridge_test_speak(request: web.Request) -> web.Response:
+    from paigen.senses.voice_engine import VoiceEngine
+    data = await request.json()
+    text = data.get("text") or "नमस्ते, मैं अर्जुन जी का असिस्टेंट पाइजेन बोल रहा हूँ।"
+    dev_id = data.get("output_device")
+    loop = asyncio.get_event_loop()
+    ok = await loop.run_in_executor(None, VoiceEngine.get_instance().speak_to_device, text, dev_id)
+    return web.json_response({"status": "success" if ok else "error", "played": ok})
+
+
 async def handle_ping(request: web.Request) -> web.Response:
     """Fast connectivity health check for the Android APK auto-discovery."""
     return web.json_response({"status": "online", "service": "PaiGen AI Gateway", "version": "4.0"})
@@ -946,6 +994,11 @@ def create_gateway_app() -> web.Application:
     app.router.add_post("/api/telephony/recording", handle_telephony_recording_upload)
     app.router.add_get("/api/telephony/recordings/{filename}", handle_telephony_recording_get)
     app.router.add_get("/api/audio/tts", handle_tts)
+    app.router.add_get("/api/audio/devices", handle_audio_devices)
+    app.router.add_get("/api/audio/bridge/status", handle_audio_bridge_status)
+    app.router.add_post("/api/audio/bridge/start", handle_audio_bridge_start)
+    app.router.add_post("/api/audio/bridge/stop", handle_audio_bridge_stop)
+    app.router.add_post("/api/audio/bridge/test_speak", handle_audio_bridge_test_speak)
     return app
 
 

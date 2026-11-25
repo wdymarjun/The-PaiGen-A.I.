@@ -55,7 +55,7 @@ def parse_call_response(raw: str) -> Dict[str, Any]:
     }
 
 OLLAMA_URL = os.getenv("PAIGEN_OLLAMA_URL", "http://127.0.0.1:11434")
-CHAT_MODEL = os.getenv("PAIGEN_CHAT_MODEL", "qwen2.5vl:3b")
+CHAT_MODEL = os.getenv("PAIGEN_CHAT_MODEL", "paigen-ai")
 ROOT_DIR = Path(__file__).resolve().parents[2]
 DB_PATH = str(ROOT_DIR / "data" / "paigen_storage.db")
 RECORDINGS_DIR = ROOT_DIR / "data" / "call_recordings"
@@ -455,6 +455,13 @@ class TelephonyBridge:
             f"Caller says: '{caller_speech}'"
         )
 
+        vague_triggers = ("phone do", "baat karni", "baat karao", "put arjun", "let me talk to arjun", "speak to arjun", "ghar par hai")
+        is_vague = (
+            len(caller_speech.split()) <= 12
+            and any(v in low for v in vague_triggers)
+            and psych.psych_state not in ("URGENT_PANIC", "STRESSED_ANXIOUS", "DECEPTIVE_PUSHY")
+        )
+
         payload = {
             "model": CHAT_MODEL,
             "stream": False,
@@ -477,18 +484,30 @@ class TelephonyBridge:
                 if raw:
                     parsed = parse_call_response(raw)
                     if parsed["spoken_text"]:
+                        # Hybrid ML + Semantic Guardrails to prevent 3B <meta> hallucinations
+                        sp_low = parsed["spoken_text"].lower()
+                        asking_for_details = any(
+                            cue in sp_low
+                            for cue in ("कारण बताएं", "नाम और", "purpose of your call", "who is calling", "किस काम")
+                        )
+                        if psych.triage_tier == "TIER_4_SPAM_MANIPULATION" or psych.manipulation_risk >= 0.7:
+                            parsed["tier"] = 4
+                            parsed["psych"] = "SCAM"
+                            parsed["action"] = "TERMINATE"
+                        elif psych.triage_tier == "TIER_1_EMERGENCY":
+                            parsed["tier"] = 1
+                            parsed["psych"] = "PANIC"
+                            parsed["action"] = "ESCALATE"
+                        elif is_vague or asking_for_details:
+                            parsed["tier"] = max(parsed["tier"], 3)
+                            parsed["psych"] = "VAGUE"
+                            parsed["action"] = "EXTRACT"
                         return parsed
         except Exception:
             pass
 
         # Deterministic, zero-TTS-bleed offline Hindi & English fallback
         state = psych.psych_state
-        vague_triggers = ("phone do", "baat karni", "baat karao", "put arjun", "let me talk to arjun", "speak to arjun", "ghar par hai")
-        is_vague = (
-            len(caller_speech.split()) <= 12
-            and any(v in low for v in vague_triggers)
-            and state not in ("URGENT_PANIC", "STRESSED_ANXIOUS", "DECEPTIVE_PUSHY")
-        )
 
         if is_vague:
             spoken = (

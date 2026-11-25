@@ -12,6 +12,7 @@ from unittest.mock import patch, MagicMock
 from aiohttp import web
 from aiohttp.test_utils import AioHTTPTestCase, unittest_run_loop
 
+from paigen.mobile.pc_audio_bridge import _clean_device_label, list_audio_devices
 from paigen.mobile.telephony_bridge import TelephonyBridge, parse_call_response
 from paigen.mobile.remote_control import RemotePCController
 from paigen.server.gateway import create_gateway_app
@@ -285,6 +286,27 @@ class TestGatewayEndpoints(AioHTTPTestCase):
         xml2 = await resp2.text()
         self.assertIn("<Hangup/>", xml2)
         self.assertNotIn("<Gather", xml2)
+
+    @unittest_run_loop
+    async def test_audio_devices_and_bridge_status_endpoints(self):
+        cleaned = _clean_device_label(
+            "@System32\\drivers\\bthhfenum.sys,#4;%1 Hands-Free HF Audio%0\r\n;(vivo V29)"
+        )
+        self.assertEqual(cleaned, "vivo V29 — Hands-Free HF Audio")
+
+        dev_resp = await self.client.request("GET", "/api/audio/devices")
+        self.assertEqual(dev_resp.status, 200)
+        dev_data = await dev_resp.json()
+        self.assertEqual(dev_data.get("status"), "success")
+        self.assertIn("inputs", dev_data)
+        self.assertIn("outputs", dev_data)
+        self.assertIn("auto_detected", dev_data)
+
+        st_resp = await self.client.request("GET", "/api/audio/bridge/status")
+        self.assertEqual(st_resp.status, 200)
+        st_data = await st_resp.json()
+        self.assertEqual(st_data.get("status"), "success")
+        self.assertIn("active", st_data.get("bridge", {}))
 
 
 if __name__ == "__main__":
