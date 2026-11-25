@@ -1,1 +1,4 @@
-# Pure Python 3.12 stdlib serverless runtime for fast <10s Vercel builds (0 bloat)
+# PaiGen AI Render Parent Control & Cloud Runtime Dependencies
+# Lightweight cloud-safe wheels (zero OpenCV/PyAudio/X11 GUI bloat)
+pydantic>=2.8.0
+numpy>=1.24.0

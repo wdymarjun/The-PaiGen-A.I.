@@ -208,8 +208,16 @@
       </div>
 
       <!-- Main Assistant Chat -->
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:0 2px;">
+        <select id="cfgChatTarget" style="background:var(--surface-2);color:#fff;border:1px solid var(--border);border-radius:10px;padding:5px 8px;font-size:11px;flex:1;">
+          <option value="auto">Route: Auto (Render Parent + PC)</option>
+          <option value="render">Route: Render Parent Brain</option>
+          <option value="pc">Route: PC Workstation Only</option>
+        </select>
+        <button class="btn btn-ghost btn-sm" onclick="syncCloudChat()">🔄 Sync PC Chat</button>
+      </div>
       <div class="chat-scroll" id="mainChatBox">
-        <div class="msg ai">नमस्ते अर्जुन! मैं आपका पर्सनल AI असिस्टेंट पाइजेन हूँ। PC कंट्रोल, लाइव कॉल रिसेप्शन और साइकोलॉजी इंजन तैयार हैं।</div>
+        <div class="msg ai">नमस्ते अर्जुन! मैं आपका PaiGen Render पेरेंट असिस्टेंट हूँ। मोबाइल और पीसी दोनों अब Render ब्रिज से जुड़े हैं।</div>
       </div>
 
       <div class="input-row">
@@ -307,11 +315,15 @@
       </div>
 
       <div class="card">
-        <div class="card-hdr"><span class="card-title">PC / Render Cloud Server Link</span></div>
+        <div class="card-hdr"><span class="card-title">Render Parent Bridge & Server Link</span></div>
         <div style="display:flex;flex-direction:column;gap:10px;">
-          <label style="font-size:12px;color:var(--muted);">Gateway or Render/Vercel URL (Wi-Fi IP or https://...onrender.com)</label>
-          <input id="cfgServerUrl" class="txt-input" value="http://192.168.11.146:8765">
-          <label style="font-size:12px;color:var(--muted);">Cloud Secret Token (Optional Local Wi-Fi, Required on Render/Vercel)</label>
+          <div class="grid-2">
+            <button class="btn btn-cyan btn-sm" onclick="useRenderPreset()">☁ Render Parent</button>
+            <button class="btn btn-ghost btn-sm" onclick="useWifiPreset()">🏠 Local Wi-Fi PC</button>
+          </div>
+          <label style="font-size:12px;color:var(--muted);">Render Parent URL or Local Wi-Fi Gateway URL</label>
+          <input id="cfgServerUrl" class="txt-input" value="https://paigen-ai-cloud.onrender.com">
+          <label style="font-size:12px;color:var(--muted);">PAIGEN_CLOUD_TOKEN (Copy from Render → Environment)</label>
           <input id="cfgCloudToken" type="password" class="txt-input" placeholder="PAIGEN_CLOUD_TOKEN">
           <label style="display:flex;align-items:center;gap:8px;font-size:13px;">
             <input type="checkbox" id="cfgAutoAsk" checked> Ask "Should I talk?" on incoming calls
@@ -321,8 +333,17 @@
             <option value="hi">Always Hindi (हिंदी)</option>
             <option value="en">Always English</option>
           </select>
-          <button class="btn btn-emerald" onclick="saveSettings()">Save Settings & Connect</button>
+          <button class="btn btn-emerald" onclick="saveSettings()">Save Settings & Connect Render</button>
         </div>
+      </div>
+
+      <div class="card">
+        <div class="card-hdr">
+          <span class="card-title">Render Parent Logs & Brain State</span>
+          <button class="btn btn-ghost btn-sm" onclick="loadCloudLogs()">Refresh Logs</button>
+        </div>
+        <div id="cloudBrainMeta" style="font-size:11px;color:var(--cyan);margin-bottom:6px;">Checking Render Parent Brain...</div>
+        <pre id="cloudLogsBox" style="background:#050810;border:1px solid var(--border);border-radius:10px;padding:8px;font-size:10px;color:var(--muted);max-height:150px;overflow-y:auto;white-space:pre-wrap;font-family:monospace;">Connect Render & tap Refresh Logs.</pre>
       </div>
 
       <div class="card">
@@ -375,7 +396,7 @@
 
   <script>
     const hasNative = typeof window.PaiGenNative !== 'undefined';
-    let SERVER_URL = 'http://192.168.11.146:8765';
+    let SERVER_URL = 'https://paigen-ai-cloud.onrender.com';
     let CLOUD_TOKEN = '';
     let AUTO_ASK = true;
     let PREF_LANG = 'auto';
@@ -486,7 +507,7 @@
       }
       if (id === 'tab-pc') refreshScreen();
       if (id === 'tab-vault') loadVault();
-      if (id === 'tab-mind') { refreshPermissions(); loadPcAudioDevices(); }
+      if (id === 'tab-mind') { refreshPermissions(); loadPcAudioDevices(); loadCloudLogs(); }
     }
 
     function loadConfig() {
@@ -558,6 +579,16 @@
       else alert('Dial on phone: ' + code);
     }
 
+    function useRenderPreset() {
+      document.getElementById('cfgServerUrl').value = 'https://paigen-ai-cloud.onrender.com';
+      saveSettings();
+    }
+
+    function useWifiPreset() {
+      document.getElementById('cfgServerUrl').value = 'http://192.168.11.146:8765';
+      saveSettings();
+    }
+
     function saveSettings() {
       SERVER_URL = document.getElementById('cfgServerUrl').value.trim().replace(/\/+$/, '');
       CLOUD_TOKEN = document.getElementById('cfgCloudToken').value.trim();
@@ -572,23 +603,63 @@
       }
       pingServer();
       loadPcAudioDevices();
+      loadCloudLogs();
     }
 
     async function pingServer() {
       const pill = document.getElementById('connPill');
       try {
-        const res = await fetch(SERVER_URL + '/api/pc/stats');
-        if (!res.ok) throw new Error('offline');
-        const stats = await res.json();
-        pill.className = 'conn-pill conn-online';
-        pill.innerText = '● PC ONLINE';
-        document.getElementById('activeWinLabel').innerText = (stats.hostname || 'PC') + ' • ' + (stats.active_window || 'Active');
+        const pingRes = await fetch(SERVER_URL + '/api/ping');
+        if (!pingRes.ok) throw new Error('offline');
+        const pingData = await pingRes.json();
+        const statsRes = await fetch(SERVER_URL + '/api/pc/stats');
+        if (statsRes.status === 401) {
+          pill.className = 'conn-pill conn-offline';
+          pill.innerText = '🔑 TOKEN NEEDED';
+          document.getElementById('activeWinLabel').innerText = 'Render Online • Enter Token in MIND tab';
+          return;
+        }
+        const stats = await statsRes.json();
+        if (stats.pc_online) {
+          pill.className = 'conn-pill conn-online';
+          pill.innerText = '● RENDER + PC ON';
+          document.getElementById('activeWinLabel').innerText = (stats.hostname || 'PC') + ' • ' + (stats.active_window || 'Active');
+        } else {
+          pill.className = 'conn-pill conn-online';
+          pill.innerText = '◐ RENDER BRAIN ON';
+          document.getElementById('activeWinLabel').innerText = (pingData.architecture === 'full_paigen_v5' ? 'Full Render Brain' : 'Render Cloud') + ' • PC Offline';
+        }
         if (stats.screen_resolution) {
           document.getElementById('pcResBadge').innerText = stats.screen_resolution[0] + 'x' + stats.screen_resolution[1];
         }
       } catch (e) {
         pill.className = 'conn-pill conn-offline';
-        pill.innerText = '○ STANDALONE';
+        pill.innerText = '○ OFFLINE';
+      }
+    }
+
+    async function loadCloudLogs() {
+      const metaEl = document.getElementById('cloudBrainMeta');
+      const box = document.getElementById('cloudLogsBox');
+      try {
+        const [stRes, logRes] = await Promise.all([
+          fetch(SERVER_URL + '/api/brain/state'),
+          fetch(SERVER_URL + '/api/logs?limit=25')
+        ]);
+        if (stRes.ok) {
+          const st = await stRes.json();
+          metaEl.innerText = `Arch: ${st.architecture || 'cloud'} • ${st.circadian_phase || ''} • PC: ${st.pc_online ? 'ONLINE' : 'OFFLINE'}`;
+        }
+        if (logRes.ok) {
+          const d = await logRes.json();
+          box.innerText = (d.logs && d.logs.length)
+            ? d.logs.map(l => `[${l.ts}] [${l.level}] [${l.category}] ${l.message}`).join('\n')
+            : 'No logs recorded yet.';
+        } else if (logRes.status === 401) {
+          box.innerText = 'Enter PAIGEN_CLOUD_TOKEN above to unlock Render Logs.';
+        }
+      } catch (e) {
+        metaEl.innerText = 'Render Parent Server unreachable.';
       }
     }
 
@@ -677,23 +748,40 @@
     }
 
     async function sendMainQuery(query) {
-      document.getElementById('coreStatus').innerText = 'Thinking & analyzing psychology...';
+      document.getElementById('coreStatus').innerText = 'Routing via Render Parent Bridge...';
+      const targetSel = document.getElementById('cfgChatTarget');
+      const target = targetSel ? targetSel.value : 'auto';
       try {
         const res = await fetch(SERVER_URL + '/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query })
+          body: JSON.stringify({ query, origin: 'mobile', target })
         });
         const data = await res.json();
-        const reply = data.reply || 'Done.';
+        const reply = data.reply || data.message || 'Done.';
         addChatMsg('mainChatBox', reply, 'ai');
         const hasHi = /[\u0900-\u097F]/.test(reply);
         speakOut(reply, hasHi ? 'hi' : 'en', null);
       } catch (e) {
-        addChatMsg('mainChatBox', 'PC Gateway offline—check Wi-Fi IP in MIND tab.', 'sys');
+        addChatMsg('mainChatBox', 'Render/PC Bridge unreachable — check URL & Token in MIND tab.', 'sys');
       } finally {
         document.getElementById('coreStatus').innerText = 'Ready • Hindi-First & British Voice Active';
       }
+    }
+
+    async function syncCloudChat() {
+      try {
+        const res = await fetch(SERVER_URL + '/api/chat/history?limit=25');
+        if (!res.ok) return;
+        const d = await res.json();
+        if (!d.messages || !d.messages.length) return;
+        const box = document.getElementById('mainChatBox');
+        box.innerHTML = '';
+        d.messages.forEach(m => {
+          const prefix = m.origin && m.origin !== 'mobile' ? `[${m.origin.toUpperCase()}] ` : '';
+          addChatMsg('mainChatBox', prefix + m.text, m.role === 'user' ? 'user' : 'ai');
+        });
+      } catch (e) {}
     }
 
     // ─── 5. Call Guardian ("Should I talk?" -> Hindi Conversation -> Recording) ─
@@ -875,7 +963,8 @@
     // ─── 6. Remote PC Controls ─────────────────────────────────────────────────
     function refreshScreen() {
       const tokParam = CLOUD_TOKEN ? '&token=' + encodeURIComponent(CLOUD_TOKEN) : '';
-      if (SERVER_URL.includes('vercel.app') || tokParam) {
+      const isCloud = SERVER_URL.startsWith('https://') || SERVER_URL.includes('onrender.com') || SERVER_URL.includes('vercel.app') || !!tokParam;
+      if (isCloud) {
         fetch(SERVER_URL + '/api/pc/input', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -993,7 +1082,8 @@
           const safePath = c.audio_path.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
           audioBtnHtml = `<button class="btn btn-cyan btn-sm" onclick="PaiGenNative.playLocalRecording('${safePath}')">▶ Play Recording (${Number(c.duration_sec || 0).toFixed(1)}s)</button>`;
         } else if (c.audio_url) {
-          audioBtnHtml = `<audio controls src="${SERVER_URL}${c.audio_url}" style="width:100%;height:34px;"></audio>`;
+          const tokQ = CLOUD_TOKEN ? ((c.audio_url.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(CLOUD_TOKEN)) : '';
+          audioBtnHtml = `<audio controls src="${SERVER_URL}${c.audio_url}${tokQ}" style="width:100%;height:34px;"></audio>`;
         }
 
         card.innerHTML = `
@@ -1123,7 +1213,7 @@
           loadVault();
         }
       } catch (e) {
-        txt.innerText = 'PC Gateway unreachable on Wi-Fi.';
+        txt.innerText = 'Render / PC Bridge unreachable — check URL & Token in MIND tab.';
       }
     }
 

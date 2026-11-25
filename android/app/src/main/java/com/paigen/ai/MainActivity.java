@@ -223,7 +223,7 @@ public class MainActivity extends Activity {
             SharedPreferences prefs = getSharedPreferences("paigen_prefs", MODE_PRIVATE);
             try {
                 JSONObject o = new JSONObject();
-                o.put("server_url", prefs.getString("server_url", "http://192.168.11.146:8765"));
+                o.put("server_url", prefs.getString("server_url", "https://paigen-ai-cloud.onrender.com"));
                 o.put("cloud_token", prefs.getString("cloud_token", ""));
                 o.put("auto_ask_calls", prefs.getBoolean("auto_ask_calls", true));
                 o.put("preferred_lang", prefs.getString("preferred_lang", "auto"));

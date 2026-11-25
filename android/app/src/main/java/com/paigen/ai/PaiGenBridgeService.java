@@ -29,6 +29,7 @@ public class PaiGenBridgeService extends Service {
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private boolean running = false;
+    private boolean renderOnline = false;
     private boolean pcOnline = false;
 
     private final Runnable heartbeatTask = new Runnable() {
@@ -36,9 +37,10 @@ public class PaiGenBridgeService extends Service {
         public void run() {
             if (!running) return;
             new Thread(() -> {
-                boolean online = pingPcServer();
-                if (online != pcOnline) {
-                    pcOnline = online;
+                boolean[] st = pingCloudBridge();
+                if (st[0] != renderOnline || st[1] != pcOnline) {
+                    renderOnline = st[0];
+                    pcOnline = st[1];
                     updateBgNotification();
                 }
             }).start();
@@ -96,8 +98,14 @@ public class PaiGenBridgeService extends Service {
         PendingIntent pi = PendingIntent.getActivity(
             this, 0, openIntent, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT
         );
-        String status = pcOnline ? "Connected to PC Workstation • Call Shield ON"
-                : "Standby on Mobile • Tap to configure PC IP";
+        String status;
+        if (renderOnline && pcOnline) {
+            status = "Render Bridge ON • PC ONLINE • Call Shield ON";
+        } else if (renderOnline) {
+            status = "Render Parent Brain ON (PC Offline) • Call Shield ON";
+        } else {
+            status = "Standby on Mobile • Tap to connect Render Hub";
+        }
         Notification.Builder b = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                 ? new Notification.Builder(this, CHANNEL_BG)
                 : new Notification.Builder(this);
@@ -116,23 +124,35 @@ public class PaiGenBridgeService extends Service {
         }
     }
 
-    private boolean pingPcServer() {
+    private boolean[] pingCloudBridge() {
         try {
             SharedPreferences prefs = getSharedPreferences("paigen_prefs", MODE_PRIVATE);
-            String baseUrl = prefs.getString("server_url", "http://192.168.11.146:8765");
+            String baseUrl = prefs.getString("server_url", "https://paigen-ai-cloud.onrender.com");
             String token = prefs.getString("cloud_token", "");
             URL url = new URL(baseUrl + "/api/ping");
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             if (token != null && !token.isEmpty()) {
                 conn.setRequestProperty("Authorization", "Bearer " + token);
+                conn.setRequestProperty("X-PaiGen-Token", token);
             }
-            conn.setConnectTimeout(2500);
-            conn.setReadTimeout(2500);
+            conn.setConnectTimeout(5000);
+            conn.setReadTimeout(5000);
             int code = conn.getResponseCode();
+            boolean pcOn = false;
+            if (code == 200) {
+                try (java.io.InputStream is = conn.getInputStream()) {
+                    byte[] buf = new byte[1024];
+                    int n = is.read(buf);
+                    if (n > 0) {
+                        String body = new String(buf, 0, n, "UTF-8");
+                        pcOn = body.contains("\"pc_online\": true") || body.contains("\"pc_online\":true");
+                    }
+                }
+            }
             conn.disconnect();
-            return code == 200;
+            return new boolean[]{code == 200, pcOn};
         } catch (Exception e) {
-            return false;
+            return new boolean[]{false, false};
         }
     }
 
@@ -180,14 +200,19 @@ public class PaiGenBridgeService extends Service {
         // Notify PC Gateway & launch PaiGen Call Vault / Guardian notification
         new Thread(() -> {
             try {
-                String baseUrl = prefs.getString("server_url", "http://192.168.11.146:8765");
+                String baseUrl = prefs.getString("server_url", "https://paigen-ai-cloud.onrender.com");
+                String token = prefs.getString("cloud_token", "");
                 URL url = new URL(baseUrl + "/api/telephony/webhook");
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                 conn.setRequestMethod("POST");
                 conn.setRequestProperty("Content-Type", "application/json");
+                if (token != null && !token.isEmpty()) {
+                    conn.setRequestProperty("Authorization", "Bearer " + token);
+                    conn.setRequestProperty("X-PaiGen-Token", token);
+                }
                 conn.setDoOutput(true);
-                conn.setConnectTimeout(3000);
-                conn.setReadTimeout(3000);
+                conn.setConnectTimeout(5000);
+                conn.setReadTimeout(5000);
                 String payload = "{\"caller_id\":\"" + callerNumber.replace("\"", "")
                     + "\",\"caller_name\":\"Busy-Mode Declined Call\",\"transcript\":\"Arjun was busy and declined/missed this call; PaiGen Auto-Busy Mode engaged.\"}";
                 try (OutputStream os = conn.getOutputStream()) {

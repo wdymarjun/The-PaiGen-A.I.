@@ -214,6 +214,7 @@ class TelephonyBridge:
         caller_id: str,
         caller_name: Optional[str] = None,
         preferred_lang: str = "hi",
+        include_audio: bool = True,
     ) -> Dict[str, Any]:
         """
         Called when Arjun taps 'Yes, Let PaiGen Talk' on the 'Should I talk?' prompt.
@@ -258,7 +259,7 @@ class TelephonyBridge:
             call_id = cur.lastrowid
             conn.commit()
 
-        audio_b64 = self._synthesize_audio_b64(opening)
+        audio_b64 = self._synthesize_audio_b64(opening) if include_audio else ""
         return {
             "call_id": call_id,
             "caller_id": c_id,
@@ -714,6 +715,7 @@ class TelephonyBridge:
                 caller_id=caller_id,
                 caller_name=caller_name,
                 preferred_lang=preferred_lang,
+                include_audio=False,
             )
             cid = sess["call_id"]
             spoken = sess["opening_speech"]

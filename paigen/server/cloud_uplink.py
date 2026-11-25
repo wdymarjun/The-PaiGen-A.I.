@@ -1,10 +1,12 @@
 """
-PaiGen AI: PC Cloud Uplink Worker (Bridges Windows PC <-> Vercel Cloud Server)
+PaiGen AI: PC Parent-Bridge Client (Bridges Windows PC <-> Render Parent Control Server)
 Architect: Arjun Singh
 
-Runs on Arjun's PC and maintains a lightweight outbound HTTPS link to your Vercel
-cloud URL so you can control your PC, run local `paigen-ai` Ollama, inspect your
-live screen, and manage Bluetooth/Call Bridge from anywhere (Wi-Fi or 5G).
+Runs on Arjun's Windows PC and maintains a continuous encrypted HTTPS bridge to
+the Render Parent Server (`https://paigen-ai-cloud.onrender.com`) so you can:
+1. Control your PC, live screen, desktop apps, and local `paigen-ai` Ollama from mobile or any browser.
+2. Control & chat with the Render Parent Brain directly from your PC CLI synced with your mobile APK.
+3. Sync parent cognitive overrides (`mood`, `fatigue`, `language`, `persona`) and Bluetooth Call Bridge state.
 Zero router port forwarding required.
 """
 
@@ -15,9 +17,13 @@ import base64
 import json
 import logging
 import os
+from pathlib import Path
+import sys
+import threading
 import time
 import urllib.error
 import urllib.request
+import webbrowser
 from typing import Any, Dict, Optional
 
 from paigen.mobile.pc_audio_bridge import PCAudioCallBridge, list_audio_devices
@@ -28,17 +34,47 @@ from paigen.senses.voice_engine import VoiceEngine
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("PaiGen.CloudUplink")
 
+DEFAULT_CLOUD_URL = "https://paigen-ai-cloud.onrender.com"
+DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "data" / "cloud_bridge.json"
+
+
+def load_cloud_config(config_path: Path = DEFAULT_CONFIG_PATH) -> Dict[str, str]:
+    """Loads saved Render Cloud URL and Token from disk if present."""
+    try:
+        if config_path.exists():
+            data = json.loads(config_path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return {
+                    "url": str(data.get("url", "")).strip(),
+                    "token": str(data.get("token", "")).strip(),
+                }
+    except Exception:
+        pass
+    return {"url": "", "token": ""}
+
+
+def save_cloud_config(url: str, token: str, config_path: Path = DEFAULT_CONFIG_PATH) -> None:
+    """Persists Render Cloud URL and Token so subsequent runs connect automatically."""
+    try:
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(
+            json.dumps({"url": url.strip().rstrip("/"), "token": token.strip()}, indent=2),
+            encoding="utf-8",
+        )
+    except Exception as exc:
+        logger.warning(f"Could not save cloud bridge config: {exc}")
+
 
 class CloudUplinkWorker:
-    """Connects the local Windows PC to the online Vercel Cloud Relay."""
+    """Connects the local Windows PC to the online Render Parent Control Hub."""
 
     def __init__(
         self,
-        cloud_url: str,
+        cloud_url: str = DEFAULT_CLOUD_URL,
         cloud_token: str = "",
         poll_interval_sec: float = 1.2,
     ):
-        self.cloud_url = cloud_url.rstrip("/")
+        self.cloud_url = (cloud_url or DEFAULT_CLOUD_URL).rstrip("/")
         self.cloud_token = cloud_token.strip()
         self.poll_interval_sec = poll_interval_sec
         self.controller = RemotePCController()
@@ -50,14 +86,15 @@ class CloudUplinkWorker:
         h = {"Content-Type": "application/json"}
         if self.cloud_token:
             h["Authorization"] = f"Bearer {self.cloud_token}"
+            h["X-PaiGen-Token"] = self.cloud_token
         return h
 
-    def _get(self, path: str, timeout: float = 6.0) -> Dict[str, Any]:
+    def _get(self, path: str, timeout: float = 8.0) -> Dict[str, Any]:
         req = urllib.request.Request(f"{self.cloud_url}{path}", headers=self._headers(), method="GET")
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8"))
 
-    def _post(self, path: str, body: Dict[str, Any], timeout: float = 8.0) -> Dict[str, Any]:
+    def _post(self, path: str, body: Dict[str, Any], timeout: float = 12.0) -> Dict[str, Any]:
         req = urllib.request.Request(
             f"{self.cloud_url}{path}",
             data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
@@ -66,6 +103,15 @@ class CloudUplinkWorker:
         )
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8"))
+
+    @staticmethod
+    def _is_ollama_reachable() -> bool:
+        ollama_url = os.getenv("PAIGEN_OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")
+        try:
+            with urllib.request.urlopen(f"{ollama_url}/api/tags", timeout=1.0) as resp:
+                return resp.status == 200
+        except Exception:
+            return False
 
     def push_screen(self) -> bool:
         jpeg = self.controller.get_screen_capture_jpeg(quality=55, max_width=1024)
@@ -77,11 +123,22 @@ class CloudUplinkWorker:
 
     def send_heartbeat(self):
         stats = self.controller.get_system_stats()
+        stats["ollama_online"] = self._is_ollama_reachable()
         stats["audio_devices"] = list_audio_devices()
         stats["audio_bridge_status"] = PCAudioCallBridge.get_instance().get_status()
         stats["calls"] = self.telephony.list_calls(limit=15)
         self._post("/api/uplink/heartbeat", stats)
         self._last_heartbeat = time.time()
+
+    def send_parent_chat(self, query: str, target: str = "auto") -> Dict[str, Any]:
+        """Sends a prompt from the PC through the Render Parent Hub so PC & Mobile stay synced."""
+        return self._post("/api/chat", {"query": query, "origin": "pc", "target": target}, timeout=25.0)
+
+    def fetch_parent_logs(self, limit: int = 15) -> Dict[str, Any]:
+        return self._get(f"/api/logs?limit={limit}")
+
+    def fetch_parent_state(self) -> Dict[str, Any]:
+        return self._get("/api/brain/state")
 
     def execute_command(self, cmd: Dict[str, Any]) -> Dict[str, Any]:
         ctype = cmd.get("type", "")
@@ -89,6 +146,16 @@ class CloudUplinkWorker:
 
         if ctype == "chat":
             return self.controller.execute_remote_command(p.get("query", ""))
+
+        if ctype == "brain_override":
+            if p.get("clear_all"):
+                self.controller.db_store.clear_all_overrides()
+            else:
+                for key in ("mood", "fatigue", "language", "persona", "circadian_phase"):
+                    val = str(p.get(key, "")).strip()
+                    if val:
+                        self.controller.db_store.set_override(key, val)
+            return {"status": "success", "overrides": self.controller.db_store.list_overrides()}
 
         if ctype == "action":
             act = p.get("action", "")
@@ -160,7 +227,7 @@ class CloudUplinkWorker:
 
     def step(self) -> int:
         """Executes one poll + heartbeat cycle. Returns number of commands processed."""
-        if time.time() - self._last_heartbeat >= 6.0:
+        if time.time() - self._last_heartbeat >= 5.0:
             self.send_heartbeat()
         polled = self._get("/api/uplink/poll")
         cmds = polled.get("commands", [])
@@ -176,12 +243,12 @@ class CloudUplinkWorker:
 
     def run_forever(self):
         self.running = True
-        print("=" * 70)
-        print("  PaiGen AI — PC Cloud Uplink Connected")
-        print(f"  Cloud Server : {self.cloud_url}")
-        print(f"  Auth Token   : {'SET' if self.cloud_token else 'NONE (Open)'}")
-        print("  Keep this window open to control your PC from anywhere.")
-        print("=" * 70)
+        print("=" * 72)
+        print("  PaiGen AI — Render Parent Bridge Connected")
+        print(f"  Render Server : {self.cloud_url}")
+        print(f"  Auth Token    : {'SET' if self.cloud_token else 'NONE (Open)'}")
+        print("  PC Ollama + Desktop Automation + Vivo V29 Bridge active.")
+        print("=" * 72)
         try:
             self.push_screen()
         except Exception:
@@ -199,21 +266,71 @@ class CloudUplinkWorker:
                 time.sleep(3.0)
 
 
+def run_pc_console(worker: CloudUplinkWorker):
+    """Runs Render uplink on a daemon thread and offers an interactive PC command prompt."""
+    t = threading.Thread(target=worker.run_forever, daemon=True)
+    t.start()
+    print("\nPC Parent Console Ready! Commands: any question, `open` (Render web hub), `status`, `logs`, `quit`\n")
+    while True:
+        try:
+            line = input("PC -> Render> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            worker.running = False
+            break
+        if not line:
+            continue
+        low = line.lower()
+        if low in ("quit", "exit", "q"):
+            worker.running = False
+            break
+        if low == "open":
+            webbrowser.open(worker.cloud_url)
+            print(f"Opened {worker.cloud_url} in browser.")
+            continue
+        if low == "status":
+            try:
+                print(json.dumps(worker.fetch_parent_state(), indent=2, ensure_ascii=False))
+            except Exception as exc:
+                print(f"Error fetching state: {exc}")
+            continue
+        if low == "logs":
+            try:
+                logs = worker.fetch_parent_logs(limit=15).get("logs", [])
+                for l in logs:
+                    print(f"[{l['ts']}] [{l['level']}] [{l['category']}] {l['message']}")
+            except Exception as exc:
+                print(f"Error fetching logs: {exc}")
+            continue
+        try:
+            res = worker.send_parent_chat(line, target="render")
+            print(f"PaiGen (Render)> {res.get('reply') or res.get('message') or res}")
+        except Exception as exc:
+            print(f"Render chat error: {exc}")
+
+
 def main():
-    parser = argparse.ArgumentParser(description="PaiGen PC Cloud Uplink Worker")
-    parser.add_argument("--url", default=os.getenv("PAIGEN_CLOUD_URL", ""), help="Deployed Vercel URL")
+    saved = load_cloud_config()
+    parser = argparse.ArgumentParser(description="PaiGen PC <-> Render Parent Bridge Worker")
+    parser.add_argument("--url", default=os.getenv("PAIGEN_CLOUD_URL", ""), help="Render Cloud URL")
     parser.add_argument("--token", default=os.getenv("PAIGEN_CLOUD_TOKEN", ""), help="PAIGEN_CLOUD_TOKEN")
+    parser.add_argument("--daemon", action="store_true", help="Run headless uplink loop without interactive PC prompt")
     args = parser.parse_args()
 
-    url = args.url.strip()
+    url = args.url.strip() or saved["url"]
     if not url:
-        url = input("Enter your Vercel Cloud URL (e.g. https://paigen-ai.vercel.app): ").strip()
-    token = args.token.strip()
-    if not token:
-        token = input("Enter PAIGEN_CLOUD_TOKEN (press Enter if none): ").strip()
+        entered = input(f"Enter Render Cloud URL [Enter for {DEFAULT_CLOUD_URL}]: ").strip()
+        url = entered or DEFAULT_CLOUD_URL
 
+    token = args.token.strip() or saved["token"]
+    if not token:
+        token = input("Enter PAIGEN_CLOUD_TOKEN from Render Dashboard (press Enter to keep empty): ").strip()
+
+    save_cloud_config(url, token)
     worker = CloudUplinkWorker(cloud_url=url, cloud_token=token)
-    worker.run_forever()
+    if args.daemon or not sys.stdin.isatty():
+        worker.run_forever()
+    else:
+        run_pc_console(worker)
 
 
 if __name__ == "__main__":

@@ -1,9 +1,10 @@
 @echo off
-title PaiGen AI - PC Cloud Uplink (Connects PC to Vercel)
-echo ========================================================
-echo   PaiGen AI: PC Cloud Uplink Daemon
-echo   Connects your PC securely to your Vercel Cloud Server
-echo ========================================================
+title PaiGen AI - Render Parent Bridge & PC Uplink
+echo ====================================================================
+echo   PaiGen AI: Render Parent Bridge ^& PC Workstation Uplink
+echo   Connects your Windows PC ^<--^> Render (https://paigen-ai-cloud.onrender.com)
+echo   Control your PC and PaiGen Brain from both PC and Vivo V29 APK.
+echo ====================================================================
 echo.
 
 cd /d "%~dp0"

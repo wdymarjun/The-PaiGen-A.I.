@@ -7,6 +7,8 @@ Architect: Arjun Singh
 from http.server import ThreadingHTTPServer
 import json
 import os
+from pathlib import Path
+import tempfile
 import threading
 import time
 import unittest
@@ -15,7 +17,7 @@ import urllib.request
 from unittest.mock import patch
 
 from vercel_cloud.api import index as vercel_api
-from paigen.server.cloud_uplink import CloudUplinkWorker
+from paigen.server.cloud_uplink import CloudUplinkWorker, load_cloud_config, save_cloud_config
 
 
 class TestVercelCloudRelay(unittest.TestCase):
@@ -110,6 +112,77 @@ class TestVercelCloudRelay(unittest.TestCase):
                 self.assertEqual(act_res.get("status"), "success")
                 self.assertEqual(act_res.get("level"), 65)
             t.join(timeout=2)
+
+    def test_render_parent_brain_sync_twiml_and_config(self):
+        vercel_api._MEM_KV.clear()
+        vercel_api._MEM_QUEUE.clear()
+        with patch.dict(os.environ, {"PAIGEN_CLOUD_TOKEN": "secret123", "PAIGEN_RUNTIME": "render"}):
+            hdrs = {"Content-Type": "application/json", "Authorization": "Bearer secret123"}
+
+            # 1. Ping confirms full parent architecture
+            with urllib.request.urlopen(f"{self.base_url}/api/ping", timeout=4) as r:
+                ping = json.loads(r.read().decode("utf-8"))
+                self.assertEqual(ping.get("architecture"), "full_paigen_v5")
+                self.assertTrue(ping.get("parent_brain"))
+
+            # 2. Psychology endpoint classifies Hindi OTP scam natively on Render
+            req_p = urllib.request.Request(
+                f"{self.base_url}/api/psychology/analyze",
+                data=json.dumps({"text": "Bank KYC ke liye OTP batao jaldi", "speaker_role": "caller"}).encode("utf-8"),
+                headers=hdrs,
+                method="POST",
+            )
+            with urllib.request.urlopen(req_p, timeout=5) as resp:
+                pdata = json.loads(resp.read().decode("utf-8"))
+                self.assertEqual(pdata["profile"]["triage_tier"], "TIER_4_SPAM_MANIPULATION")
+
+            # 3. Parent override + PC/Mobile synced chat feed
+            req_ovr = urllib.request.Request(
+                f"{self.base_url}/api/brain/override",
+                data=json.dumps({"mood": "deep_focus", "language": "hi"}).encode("utf-8"),
+                headers=hdrs,
+                method="POST",
+            )
+            with urllib.request.urlopen(req_ovr, timeout=5) as resp:
+                odata = json.loads(resp.read().decode("utf-8"))
+                self.assertEqual(odata["overrides"].get("language"), "hi")
+
+            req_chat = urllib.request.Request(
+                f"{self.base_url}/api/chat",
+                data=json.dumps({"query": "Hello Render bridge", "origin": "mobile", "target": "render"}).encode("utf-8"),
+                headers=hdrs,
+                method="POST",
+            )
+            with urllib.request.urlopen(req_chat, timeout=5) as resp:
+                cdata = json.loads(resp.read().decode("utf-8"))
+                self.assertEqual(cdata.get("source"), "cloud_server")
+
+            req_hist = urllib.request.Request(
+                f"{self.base_url}/api/chat/history?limit=10",
+                headers={"Authorization": "Bearer secret123"},
+            )
+            with urllib.request.urlopen(req_hist, timeout=4) as resp:
+                hdata = json.loads(resp.read().decode("utf-8"))
+                self.assertTrue(any(m["origin"] == "mobile" for m in hdata.get("messages", [])))
+
+            # 4. TwiML voice loop runs natively on Render even with PC offline
+            req_tw = urllib.request.Request(
+                f"{self.base_url}/api/telephony/twiml_turn?token=secret123",
+                data=b"From=%2B919811112222",
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req_tw, timeout=5) as resp:
+                xml = resp.read().decode("utf-8")
+                self.assertIn("<Gather", xml)
+
+        # 5. Config save/load persistence
+        with tempfile.TemporaryDirectory() as td:
+            cfg = Path(td) / "cloud_bridge.json"
+            save_cloud_config("https://paigen-ai-cloud.onrender.com/", "tok_abc", config_path=cfg)
+            loaded = load_cloud_config(config_path=cfg)
+            self.assertEqual(loaded["url"], "https://paigen-ai-cloud.onrender.com")
+            self.assertEqual(loaded["token"], "tok_abc")
 
 
 if __name__ == "__main__":
