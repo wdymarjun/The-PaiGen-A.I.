@@ -297,7 +297,14 @@
       </div>
 
       <div class="card">
-        <div class="card-hdr"><span class="card-title">Launch Desktop Apps &amp; AI Style Studio</span></div>
+        <div class="card-hdr">
+          <span class="card-title">Launch Desktop Apps &amp; AI Style Studio</span>
+          <select id="hoverModeSel" style="background:var(--surface-2);color:#fff;border:1px solid var(--border);border-radius:8px;padding:3px 7px;font-size:10px;">
+            <option value="research">Mode: AI Research</option>
+            <option value="inspect">Mode: Code/UI Inspect</option>
+            <option value="focus_guard">Mode: Focus Guard</option>
+          </select>
+        </div>
         <div class="grid-2">
           <button class="btn btn-ghost btn-sm" onclick="launchApp('chrome')">🌐 Chrome</button>
           <button class="btn btn-ghost btn-sm" onclick="launchApp('code')">💻 VS Code</button>
@@ -305,6 +312,9 @@
           <button class="btn btn-ghost btn-sm" onclick="launchApp('whatsapp')">💬 WhatsApp</button>
           <button class="btn btn-cyan btn-sm" onclick="runAiStyleStudy()">🧠 Study Claude/Gemini/GPT</button>
           <button class="btn btn-ghost btn-sm" id="btnHoverPc" onclick="togglePcHover()">🖱 Auto-Hover: OFF</button>
+        </div>
+        <div id="studioStatusBox" style="font-size:11px;color:var(--muted);margin-top:8px;padding:7px 9px;border:1px solid var(--border);border-radius:10px;background:#080808;">
+          Hover: Bezier window-aware navigation + auto user-yield ready.
         </div>
       </div>
     </section>
@@ -1868,16 +1878,47 @@
     }
 
     let hoverActive = false;
+    let hoverPollHandle = null;
+    async function refreshStudioTelemetry() {
+      const box = document.getElementById('studioStatusBox');
+      if (!box) return;
+      try {
+        const res = await fetch(SERVER_URL + '/api/studio/status');
+        if (!res.ok) return;
+        const d = await res.json();
+        const hv = d.hover || {};
+        const st = d.study || {};
+        const hvLine = hv.active
+          ? `HOVER [${hv.mode}] • ${hv.active_window} -> ${hv.current_waypoint}${hv.yielded_to_user ? ' (Paused: User Moved Mouse)' : ''}`
+          : 'Hover: Idle (Bezier + Auto User-Yield ready)';
+        const stLine = st.benchmarks_evaluated
+          ? ` • Study: ${st.benchmarks_evaluated} prompts (Rubric ${st.avg_rubric_score}, Triage ${(st.ml_metrics?.val_triage_accuracy*100||0).toFixed(1)}%)`
+          : '';
+        box.innerText = hvLine + stLine + (hv.observation ? `\nEye: ${hv.observation}` : '');
+      } catch (e) {}
+    }
+
     async function togglePcHover() {
       hoverActive = !hoverActive;
       const btn = document.getElementById('btnHoverPc');
+      const modeSel = document.getElementById('hoverModeSel');
+      const mode = modeSel ? modeSel.value : 'research';
       if (btn) btn.innerText = hoverActive ? '🖱 Auto-Hover: ON' : '🖱 Auto-Hover: OFF';
-      await sendMainQuery(hoverActive ? 'hover pc' : 'stop hover');
+      const cmd = !hoverActive ? 'stop hover' : (mode === 'inspect' ? 'hover inspect' : (mode === 'focus_guard' ? 'hover focus' : 'hover research'));
+      await sendMainQuery(cmd);
+      if (hoverPollHandle) clearInterval(hoverPollHandle);
+      if (hoverActive) {
+        refreshStudioTelemetry();
+        hoverPollHandle = setInterval(refreshStudioTelemetry, 2500);
+      } else {
+        refreshStudioTelemetry();
+      }
     }
     async function runAiStyleStudy() {
       switchTab('tab-core');
-      addChatMsg('mainChatBox', 'Studying Claude, Gemini & ChatGPT styles + retraining ML...', 'sys');
+      addChatMsg('mainChatBox', 'Running 10-benchmark Tri-Style Study (Claude/Gemini/GPT) + Rubric + ML retrain...', 'sys');
       await sendMainQuery('study claude gemini chatgpt');
+      refreshStudioTelemetry();
     }
 
     function refreshAppUpdateInfo() {

@@ -750,6 +750,49 @@ async def handle_psychology_analyze(request: web.Request) -> web.Response:
         return web.json_response({"status": "error", "message": str(e)}, status=500)
 
 
+async def handle_studio_status(request: web.Request) -> web.Response:
+    """Returns live semantic Auto-Hover telemetry & Tri-Style Study report."""
+    from paigen.brain.ai_style_trainer import AutonomousStyleStudio
+    return web.json_response({
+        "status": "success",
+        "hover": AutonomousStyleStudio.get_hover_status(),
+        "study": AutonomousStyleStudio.get_study_report(),
+    })
+
+
+async def handle_studio_hover(request: web.Request) -> web.Response:
+    """Starts or stops window-aware Cubic-Bezier Auto-Hover."""
+    try:
+        data = await request.json() if request.can_read_body else {}
+        from paigen.brain.ai_style_trainer import AutonomousStyleStudio
+        action = str(data.get("action", "start")).lower()
+        if action == "stop":
+            return web.json_response(AutonomousStyleStudio.stop_hover())
+        mode = str(data.get("mode", "research"))
+        open_portals = bool(data.get("open_portals", mode == "research"))
+        duration = float(data.get("duration_sec", 60.0))
+        res = AutonomousStyleStudio.start_hover(open_portals=open_portals, duration_sec=duration, mode=mode)
+        return web.json_response(res)
+    except Exception as e:
+        return web.json_response({"status": "error", "message": str(e)}, status=500)
+
+
+async def handle_studio_study(request: web.Request) -> web.Response:
+    """Runs multi-benchmark Tri-Style (Claude/Gemini/ChatGPT) study & ML retrain."""
+    try:
+        data = await request.json() if request.can_read_body else {}
+        from paigen.brain.ai_style_trainer import AutonomousStyleStudio
+        loop = asyncio.get_event_loop()
+        if data.get("open_portals", True):
+            await loop.run_in_executor(None, AutonomousStyleStudio.open_ai_portals, ["claude", "gemini", "chatgpt"])
+        res = await loop.run_in_executor(
+            None, AutonomousStyleStudio.distill_tri_style_and_retrain, bool(data.get("use_live_llm", False))
+        )
+        return web.json_response(res)
+    except Exception as e:
+        return web.json_response({"status": "error", "message": str(e)}, status=500)
+
+
 async def handle_telephony_session_start(request: web.Request) -> web.Response:
     """Starts an AI-handled call session when Arjun approves 'Should I talk?'."""
     try:
@@ -1108,6 +1151,9 @@ def create_gateway_app() -> web.Application:
     app.router.add_post("/api/pc/input", handle_pc_input)
     app.router.add_post("/api/action", handle_action)
     app.router.add_post("/api/psychology/analyze", handle_psychology_analyze)
+    app.router.add_get("/api/studio/status", handle_studio_status)
+    app.router.add_post("/api/studio/hover", handle_studio_hover)
+    app.router.add_post("/api/studio/study", handle_studio_study)
     app.router.add_post("/api/telephony/webhook", handle_telephony_webhook)
     app.router.add_get("/api/telephony/calls", handle_telephony_calls)
     app.router.add_post("/api/telephony/session/start", handle_telephony_session_start)

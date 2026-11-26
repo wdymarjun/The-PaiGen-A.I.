@@ -13,6 +13,9 @@ import inspect
 import os
 from pathlib import Path
 
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+
 
 def format_dataset_with_chat_template(dataset, tokenizer):
     """
@@ -51,7 +54,7 @@ def verify_dataset_formatting(base_model_id: str, dataset_path: str):
 
 
 def run_training(
-    base_model_id: str = "Qwen/Qwen2.5-7B-Instruct",
+    base_model_id: str = "unsloth/Qwen2.5-7B-Instruct-bnb-4bit",
     dataset_path: str = "./training/paigen_chatml_dataset.jsonl",
     output_dir: str = "./output/paigen-7b-lora",
     max_steps: int = 160,
@@ -61,6 +64,7 @@ def run_training(
         import torch
         from datasets import load_dataset
         from transformers import (
+            AutoConfig,
             AutoModelForCausalLM,
             AutoTokenizer,
             BitsAndBytesConfig,
@@ -84,23 +88,23 @@ def run_training(
     print(f"[*] Target GPU: {gpu_name} ({vram_gb:.2f} GB VRAM)")
 
     use_bf16 = torch.cuda.is_bf16_supported()
-    bnb_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=torch.bfloat16 if use_bf16 else torch.float16,
-        bnb_4bit_use_double_quant=True,
-    )
+    cfg = AutoConfig.from_pretrained(base_model_id, trust_remote_code=True)
+    has_quant_cfg = getattr(cfg, "quantization_config", None) is not None
 
     tokenizer = AutoTokenizer.from_pretrained(base_model_id, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    model = AutoModelForCausalLM.from_pretrained(
-        base_model_id,
-        quantization_config=bnb_config,
-        device_map="auto",
-        trust_remote_code=True,
-    )
+    load_kwargs = {"device_map": "auto", "trust_remote_code": True}
+    if not has_quant_cfg:
+        load_kwargs["quantization_config"] = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.bfloat16 if use_bf16 else torch.float16,
+            bnb_4bit_use_double_quant=True,
+        )
+
+    model = AutoModelForCausalLM.from_pretrained(base_model_id, **load_kwargs)
     model.config.use_cache = False
     model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
 
@@ -131,6 +135,7 @@ def run_training(
             "gradient_accumulation_steps": 8,
             "gradient_checkpointing": True,
             "optim": "paged_adamw_8bit",
+            "warmup_steps": 12,
             "warmup_ratio": 0.08,
             "lr_scheduler_type": "cosine",
             "weight_decay": 0.01,
@@ -209,7 +214,7 @@ def run_training(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="PaiGen Local 7B QLoRA Fine-Tuner")
-    parser.add_argument("--model", default="Qwen/Qwen2.5-7B-Instruct", help="Base HuggingFace Model ID")
+    parser.add_argument("--model", default="unsloth/Qwen2.5-7B-Instruct-bnb-4bit", help="Base HuggingFace Model ID")
     parser.add_argument("--dataset", default="./training/paigen_chatml_dataset.jsonl", help="Dataset path")
     parser.add_argument("--output", default="./output/paigen-7b-lora", help="Output directory")
     parser.add_argument("--steps", type=int, default=160, help="Training steps")

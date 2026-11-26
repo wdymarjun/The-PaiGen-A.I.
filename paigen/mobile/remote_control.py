@@ -315,21 +315,35 @@ class RemotePCController:
             res = AutonomousStyleStudio.stop_hover()
             return {"status": "success", "reply": res["message"], "action": "stop_hover", "details": res}
 
-        if any(w in low for w in ("hover pc", "auto hover", "random hover", "open claude and chat")):
+        if any(w in low for w in ("hover status", "style report", "study status")):
             from paigen.brain.ai_style_trainer import AutonomousStyleStudio
-            res = AutonomousStyleStudio.start_hover(open_portals=True, duration_sec=45.0)
+            hv = AutonomousStyleStudio.get_hover_status()
+            sr = AutonomousStyleStudio.get_study_report()
+            return {
+                "status": "success",
+                "reply": f"Hover={hv.get('active')} ({hv.get('mode')}, waypoint={hv.get('current_waypoint')}); Study={sr.get('avg_rubric_score', '--')} rubric.",
+                "action": "studio_status",
+                "details": {"hover": hv, "study": sr},
+            }
+
+        if any(w in low for w in ("hover pc", "auto hover", "hover research", "hover inspect", "hover focus", "open claude and chat")):
+            from paigen.brain.ai_style_trainer import AutonomousStyleStudio
+            hmode = "inspect" if "inspect" in low else ("focus_guard" if "focus" in low else "research")
+            res = AutonomousStyleStudio.start_hover(open_portals=(hmode == "research"), duration_sec=60.0, mode=hmode)
             return {"status": "success", "reply": res["message"], "action": "start_hover", "details": res}
 
         if any(w in low for w in ("study claude", "analyze claude", "claude gemini chatgpt", "open claude")):
             from paigen.brain.ai_style_trainer import AutonomousStyleStudio
             opened = AutonomousStyleStudio.open_ai_portals(["claude", "gemini", "chatgpt"])
-            distilled = AutonomousStyleStudio.distill_tri_style_and_retrain()
+            distilled = AutonomousStyleStudio.distill_tri_style_and_retrain(use_live_llm=("live" in low))
             m = distilled["ml_metrics"]
+            ho = distilled.get("adversarial_holdout") or {}
             return {
                 "status": "success",
                 "reply": (
-                    f"{opened['message']} Tri-style distillation complete & ML retrained "
-                    f"(Triage {m['val_triage_accuracy']*100:.1f}%, Psych {m['val_state_accuracy']*100:.1f}%)."
+                    f"{opened['message']} Tri-style study ({distilled['benchmarks_evaluated']} benchmarks, "
+                    f"rubric {distilled['avg_rubric_score']}) -> Triage {m['val_triage_accuracy']*100:.1f}%, "
+                    f"Psych {m['val_state_accuracy']*100:.1f}%, Holdout {ho.get('adversarial_triage_acc', 1.0)*100:.0f}%."
                 ),
                 "action": "ai_style_study",
                 "details": distilled,
