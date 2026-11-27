@@ -94,7 +94,12 @@ class VoiceEngine:
 
         if PYGAME_OK:
             try:
+                # Pre-init with Bluetooth-optimised settings BEFORE init()
+                # 44100Hz, 16-bit signed, stereo, 2048-sample buffer
+                # This eliminates choppy/breaking audio on A2DP Bluetooth sinks
+                pygame.mixer.pre_init(frequency=44100, size=-16, channels=2, buffer=2048)
                 pygame.mixer.init()
+                pygame.mixer.music.set_volume(1.0)
                 self._mixer_initialized = True
             except Exception as e:
                 logger.debug(f"pygame.mixer init failed: {e}")
@@ -266,6 +271,56 @@ class VoiceEngine:
                     pass
             return ok
 
+    # ------------------------------------------------------------------ #
+    #  Internal helpers                                                    #
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _split_into_chunks(text: str) -> list:
+        """
+        Splits text at natural sentence/phrase boundaries so each gTTS call
+        produces a short, fully-rendered audio segment — eliminating the
+        internal codec gaps that cause choppy Bluetooth A2DP playback.
+
+        Rules (in priority order):
+          1. Split at sentence-ending punctuation followed by space: ।  .  !  ?
+          2. Split at list/phrase commas when chunk > 60 chars (Hindi)
+          3. Never return an empty chunk
+        """
+        # Devanagari danda (।) + standard sentence enders
+        parts = re.split(r'(?<=[।.!?])\s+', text)
+        chunks = []
+        for part in parts:
+            part = part.strip()
+            if not part:
+                continue
+            # For longer Hindi fragments also split at comma
+            if is_devanagari(part) and len(part) > 60:
+                sub_parts = re.split(r',\s*', part)
+                for sp in sub_parts:
+                    sp = sp.strip()
+                    if sp:
+                        chunks.append(sp)
+            else:
+                chunks.append(part)
+        return chunks if chunks else [text]
+
+    def _play_mp3_bytes(self, mp3_bytes: bytes) -> None:
+        """
+        Plays a raw MP3 byte buffer through pygame.mixer.music with clean
+        A2DP-safe settings and blocks until playback finishes.
+        """
+        fp = io.BytesIO(mp3_bytes)
+        pygame.mixer.music.load(fp)
+        pygame.mixer.music.set_volume(1.0)
+        pygame.mixer.music.play()
+        # Poll at 10 ms precision — tight enough for no-gap, cheap on CPU
+        while pygame.mixer.music.get_busy():
+            time.sleep(0.01)
+        # Tiny trailing silence so A2DP codec has time to flush its buffer
+        # before the next chunk starts — prevents the "clipping at start" glitch
+        time.sleep(0.07)
+
     def speak(
         self,
         text: str,
@@ -273,7 +328,16 @@ class VoiceEngine:
         on_end: Optional[Callable[[], None]] = None
     ):
         """
-        Speaks the given text out loud through PC speakers with graceful fallback.
+        Speaks the given text out loud through the default audio device (CH
+        Bluetooth or any Windows audio sink).
+
+        Flow:
+          • Cleans text via clean_text_for_speech()
+          • Splits into short natural-language chunks
+          • Synthesises each chunk separately via gTTS (cached in RAM)
+          • Plays chunks back-to-back with a 70 ms inter-chunk gap so the
+            Bluetooth A2DP codec buffer never under-runs → smooth, unbroken speech
+          • Falls back to pyttsx3 SAPI5 (offline) if gTTS / pygame unavailable
         """
         clean = clean_text_for_speech(text)
         if not clean:
@@ -289,21 +353,27 @@ class VoiceEngine:
 
             spoke_successfully = False
 
-            # 1. Primary: Cached/Prefetched Neural Audio via gTTS + in-memory pygame.mixer
+            # 1. Primary: Chunked Neural Audio via gTTS + pygame.mixer
             if self._voice_mode != "fast" and GTTS_OK and self._mixer_initialized:
                 try:
-                    raw_mp3 = self.synthesize_mp3_bytes(clean)
-                    if raw_mp3:
-                        fp = io.BytesIO(raw_mp3)
-                        pygame.mixer.music.load(fp)
-                        pygame.mixer.music.play()
+                    chunks = self._split_into_chunks(clean)
+                    logger.debug(f"Speaking {len(chunks)} chunk(s): {chunks}")
 
-                        while pygame.mixer.music.get_busy():
-                            time.sleep(0.02)
+                    # Pre-fetch all chunks into RAM before playing the first one
+                    # so network latency doesn't cause mid-sentence pauses
+                    audio_segments: list = []
+                    for chunk in chunks:
+                        raw = self.synthesize_mp3_bytes(chunk)
+                        if raw:
+                            audio_segments.append(raw)
 
+                    if audio_segments:
+                        for seg in audio_segments:
+                            self._play_mp3_bytes(seg)
                         spoke_successfully = True
+
                 except Exception as e:
-                    logger.debug(f"gTTS playback failed ({e}), attempting offline fallback.")
+                    logger.debug(f"gTTS chunked playback failed ({e}), attempting offline fallback.")
 
             # 2. Offline Fallback: Windows SAPI5 via pyttsx3
             if not spoke_successfully and self._sapi_engine:
