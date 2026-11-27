@@ -335,16 +335,17 @@ class DesktopController:
         payload = {
             "model": VISION_MODEL,
             "stream": False,
+            "keep_alive": "45s",
             "messages": [{
                 "role": "user",
                 "content": (
                     "You have direct vision of the user's computer screen. "
-                    "Analyze the open windows, active software, code, browser tabs, or media accurately and concisely. "
+                    "Analyze the open windows, active software, code, browser tabs, AI chat responses, or errors accurately and concisely. "
                     "Question: " + question
                 ),
                 "images": [b64_img]
             }],
-            "options": {"temperature": 0.2}
+            "options": {"temperature": 0.2, "num_ctx": 2048, "num_predict": 220}
         }
 
         req = urllib.request.Request(
@@ -358,7 +359,7 @@ class DesktopController:
                 res = json.loads(resp.read().decode("utf-8"))
                 return res.get("message", {}).get("content", "").strip()
         except Exception as e:
-            return f"Screen vision analysis error: {e}"
+            return f"[Vision Error]: {e}"
 
     @classmethod
     def visual_click(cls, target_description: str, click_type: str = "single") -> Optional[str]:

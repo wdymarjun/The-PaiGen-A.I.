@@ -4,13 +4,17 @@ Architect: Arjun Singh
 """
 
 import random
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
+import paigen.brain.ai_style_trainer as style_mod
 from paigen.brain.ai_style_trainer import (
     AutonomousStyleStudio,
     _bezier_trajectory,
     _discover_laptop_context,
+    _is_boilerplate_rule,
     _pick_curiosity_topics,
     _plan_window_waypoints,
     _score_synthesis_rubric,
@@ -20,6 +24,27 @@ from paigen.brain.cognitive import CognitiveBrain, TelemetryContext
 
 
 class TestAIStyleStudio(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        tmp_p = Path(self._tmp.name)
+        chatml_tmp = tmp_p / "chatml.jsonl"
+        chatml_tmp.write_text("", encoding="utf-8")
+        self._patches = [
+            patch.object(style_mod, "CHATML_PATH", chatml_tmp),
+            patch.object(style_mod, "STYLE_LOG_PATH", tmp_p / "style.jsonl"),
+            patch.object(style_mod, "DIRECTIVES_PATH", tmp_p / "directives.json"),
+            patch.object(style_mod, "TOPIC_HISTORY_PATH", tmp_p / "history.json"),
+            patch.object(style_mod, "STUDY_REPORT_PATH", tmp_p / "study_report.json"),
+            patch.object(style_mod, "UPGRADE_STATE_PATH", tmp_p / "upgrade_state.json"),
+            patch.object(style_mod, "HOVER_TELEMETRY_PATH", tmp_p / "hover.json"),
+        ]
+        for p in self._patches:
+            p.start()
+
+    def tearDown(self):
+        for p in reversed(self._patches):
+            p.stop()
+        self._tmp.cleanup()
     def test_bezier_trajectory_smooth_and_bounded(self):
         pts = _bezier_trajectory((100, 100), (800, 600), steps=20, rng=random.Random(7))
         self.assertEqual(len(pts), 20)
@@ -77,6 +102,26 @@ class TestAIStyleStudio(unittest.TestCase):
         t2 = _pick_curiosity_topics(ctx, count=2, rng=random.Random(12))
         self.assertEqual(len(t1), 2)
         self.assertEqual(len(t2), 2)
+
+    def test_boilerplate_rejection_and_jaccard_dedup(self):
+        self.assertTrue(_is_boilerplate_rule("Verdict: Decompose 'SQLite WAL' by measuring baseline constraints before changing"))
+        self.assertFalse(_is_boilerplate_rule("Always drop stale encoded video frames older than 60ms instead of buffering over Wi-Fi."))
+        merged = AutonomousStyleStudio._update_learned_directives(
+            [
+                "Verdict: Decompose 'SQLite' by measuring baseline constraints before changing queues.",
+                "Separate capture CRC32 hashing from transport encoding queues to stop bufferbloat spikes.",
+                "Always separate capture CRC32 hashing from transport encoding queues to stop bufferbloat spikes cleanly.",
+            ],
+            ["Video backpressure"],
+        )
+        # Near-duplicate and boilerplate rules must not accumulate
+        hits = [r for r in merged if "capture crc32 hashing" in r.lower()]
+        self.assertEqual(len(hits), 1)
+        self.assertFalse(any(_is_boilerplate_rule(r) for r in merged))
+
+        up = AutonomousStyleStudio.self_upgrade_llm(auto_qlora=False, upgrade_ollama_kernel=False)
+        self.assertGreaterEqual(up["active_directives"], 1)
+        self.assertEqual(up["qlora_status"], "skipped_light_mode")
 
     def test_hover_start_and_stop_lifecycle_safe(self):
         with patch("pyautogui.moveTo"), patch("pyautogui.position", return_value=(400, 400)), patch("pyautogui.size", return_value=(1920, 1200)):

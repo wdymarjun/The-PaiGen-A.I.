@@ -364,7 +364,7 @@ class RemotePCController:
                 "reply": (
                     f"Self-Upgrade complete: studied {len(distilled.get('random_topics_studied', []))} fresh topics, "
                     f"added {distilled['added_chatml']} ChatML samples, {distilled['learned_directives_count']} live directives, "
-                    f"ML Triage {m['val_triage_accuracy']*100:.1f}%, QLoRA={distilled.get('self_upgrade')}."
+                    f"ML Triage {m['val_triage_accuracy']*100:.1f}%, Ollama={distilled.get('ollama_status')}, QLoRA={distilled.get('self_upgrade')}."
                 ),
                 "action": "ai_self_upgrade",
                 "details": distilled,

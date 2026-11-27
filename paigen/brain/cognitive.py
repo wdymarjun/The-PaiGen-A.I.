@@ -384,21 +384,41 @@ STRICT INVARIANT: You run 100% locally on localhost. Zero cloud calls."""
         except Exception:
             return draft
 
-    def query(
-        self,
-        user_input: str,
-        ctx: Optional[TelemetryContext] = None,
-    ) -> str:
-        """Synchronous query with complete user/assistant turn pairs."""
-        if ctx is None:
-            ctx = TelemetryContext()
+    @staticmethod
+    def _recall_learned_context(user_input: str) -> str:
+        """Recalls relevant self-learned facts from paigen_memory and recent laptop telemetry for trusted turns."""
+        parts: List[str] = []
+        q = (user_input or "").strip()
+        if len(q) >= 6:
+            try:
+                from paigen.brain.autolearner import mem
+                res = mem.query(query_texts=[q], n_results=2)
+                docs = [d for d in (res.get("documents", [[]])[0] or []) if d]
+                if docs:
+                    parts.append("Recalled Self-Learned Memory:\n" + "\n".join(f"- {d[:260]}" for d in docs))
+            except Exception:
+                pass
+        low = q.lower()
+        if any(w in low for w in ("laptop", "window", "screen", "working", "open", "hover", "browser", "app")):
+            try:
+                from paigen.brain.ai_style_trainer import HOVER_TELEMETRY_PATH
+                if HOVER_TELEMETRY_PATH.exists():
+                    hv = json.loads(HOVER_TELEMETRY_PATH.read_text(encoding="utf-8"))
+                    if time.time() - float(hv.get("updated_at", 0.0)) <= 900.0:
+                        apps = ", ".join(hv.get("open_apps", [])[:5])
+                        obs = hv.get("observation", "")
+                        parts.append(
+                            f"Recent Laptop Workspace: active='{hv.get('active_window')}', "
+                            f"open=[{apps}], screen='{obs[:180]}'"
+                        )
+            except Exception:
+                pass
+        return "\n".join(parts)
 
+    def _prepare_messages(self, user_input: str, ctx: TelemetryContext) -> List[Dict[str, str]]:
+        """Constructs complete prompt stack with dynamic telemetry, RAG memory, and channel tagging."""
         self.db.get_or_create_session(ctx.session_id)
-
-        # 1. Fetch recent history in complete turn pairs
         paired_history = self.db.get_session_turn_pairs(ctx.session_id, max_pairs=3)
-
-        # 2. Persist new user message
         self.db.add_message(ctx.session_id, "user", user_input)
 
         system_prompt = self.build_dynamic_system_prompt(ctx, user_query=user_input)
@@ -414,11 +434,27 @@ STRICT INVARIANT: You run 100% locally on localhost. Zero cloud calls."""
             else:
                 user_payload = f"[CHANNEL: ARJUN] {user_input}"
 
-        messages = [{"role": "system", "content": system_prompt}]
+        messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
         for rec in paired_history:
             messages.append({"role": rec.role, "content": rec.content})
+        if not user_payload.startswith("[CHANNEL: CALL]"):
+            recalled = self._recall_learned_context(user_input)
+            if recalled:
+                messages.append({"role": "system", "content": f"[AUTONOMOUSLY LEARNED CONTEXT]\n{recalled}"})
         messages.append({"role": "system", "content": state_block})
         messages.append({"role": "user", "content": user_payload})
+        return messages
+
+    def query(
+        self,
+        user_input: str,
+        ctx: Optional[TelemetryContext] = None,
+    ) -> str:
+        """Synchronous query with complete user/assistant turn pairs."""
+        if ctx is None:
+            ctx = TelemetryContext()
+
+        messages = self._prepare_messages(user_input, ctx)
 
         # Autonomous Research & Tool Engine Integration (AutoLearner)
         research_keywords = ("search", "wiki", "look up", "find", "who was", "what is", "remember", "learn", "latest", "benchmark")
@@ -468,7 +504,7 @@ STRICT INVARIANT: You run 100% locally on localhost. Zero cloud calls."""
                     assistant_message = self._refine_complex_answer(user_input, assistant_message, options)
                 self.db.add_message(ctx.session_id, "assistant", assistant_message)
                 return assistant_message
-        except urllib.error.URLError as e:
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
             fallback = (
                 f"[Local Model Offline] Ollama is not currently responding at {self.ollama_base_url}. "
                 f"Ensure Ollama is started locally (`ollama serve`). (Error: {e})"
@@ -485,28 +521,7 @@ STRICT INVARIANT: You run 100% locally on localhost. Zero cloud calls."""
         if ctx is None:
             ctx = TelemetryContext()
 
-        self.db.get_or_create_session(ctx.session_id)
-        paired_history = self.db.get_session_turn_pairs(ctx.session_id, max_pairs=3)
-        self.db.add_message(ctx.session_id, "user", user_input)
-
-        system_prompt = self.build_dynamic_system_prompt(ctx, user_query=user_input)
-        state_block = self._compile_human_state_block(user_input, ctx)
-
-        user_payload = user_input
-        if not any(
-            user_input.lstrip().startswith(prefix)
-            for prefix in ("[CHANNEL: ARJUN]", "[CHANNEL: VISION]", "[CHANNEL: CALL]")
-        ):
-            if "[Live Screen Context]" in user_input or ctx.perception_signals:
-                user_payload = f"[CHANNEL: VISION] {user_input}"
-            else:
-                user_payload = f"[CHANNEL: ARJUN] {user_input}"
-
-        messages = [{"role": "system", "content": system_prompt}]
-        for rec in paired_history:
-            messages.append({"role": rec.role, "content": rec.content})
-        messages.append({"role": "system", "content": state_block})
-        messages.append({"role": "user", "content": user_payload})
+        messages = self._prepare_messages(user_input, ctx)
 
         # Autonomous Research & Tool Engine Integration (AutoLearner)
         research_keywords = ("search", "wiki", "look up", "find", "who was", "what is", "remember", "learn", "latest", "benchmark")
@@ -563,7 +578,7 @@ STRICT INVARIANT: You run 100% locally on localhost. Zero cloud calls."""
             full_response = "".join(accumulated_chunks)
             self.db.add_message(ctx.session_id, "assistant", full_response)
 
-        except urllib.error.URLError as e:
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
             err_msg = f"[Local Model Offline] Cannot connect to Ollama at {self.ollama_base_url}: {e}"
             yield err_msg
             self.db.add_message(ctx.session_id, "assistant", err_msg, metadata={"offline_fallback": True})
