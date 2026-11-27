@@ -96,6 +96,7 @@ VK_MAP: Dict[str, int] = {
     "f7": 0x76, "f8": 0x77, "f9": 0x78, "f10": 0x79, "f11": 0x7A, "f12": 0x7B,
     "playpause": 0xB3, "volumemute": 0xAD, "volumeup": 0xAF, "volumedown": 0xAE,
     "nexttrack": 0xB0, "prevtrack": 0xB1,
+    "=": 0xBB, "+": 0xBB, "-": 0xBD,
 }
 
 BLOCKED_HOTKEYS = frozenset({"alt+f4", "win+r", "ctrl+shift+esc", "ctrl+alt+del", "ctrl+alt+delete"})
