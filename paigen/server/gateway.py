@@ -769,14 +769,14 @@ async def handle_studio_hover(request: web.Request) -> web.Response:
         if action == "stop":
             return web.json_response(AutonomousStyleStudio.stop_hover())
         mode = str(data.get("mode", "autonomous"))
-        open_portals = bool(data.get("open_portals", mode in ("research", "autonomous")))
+        open_portals = bool(data.get("open_portals", False))
         duration = float(data.get("duration_sec", 90.0))
         res = AutonomousStyleStudio.start_hover(
             open_portals=open_portals,
             duration_sec=duration,
             mode=mode,
             auto_explore=bool(data.get("auto_explore", mode in ("research", "autonomous"))),
-            allow_browser_typing=bool(data.get("allow_browser_typing", mode == "autonomous")),
+            allow_browser_typing=bool(data.get("allow_browser_typing", False)),
             auto_upgrade=bool(data.get("auto_upgrade", mode == "autonomous")),
         )
         return web.json_response(res)

@@ -341,11 +341,11 @@ class RemotePCController:
             else:
                 hmode = "research"
             res = AutonomousStyleStudio.start_hover(
-                open_portals=(hmode in ("research", "autonomous")),
+                open_portals=("open portals" in low or "open claude" in low),
                 duration_sec=120.0 if hmode == "autonomous" else 60.0,
                 mode=hmode,
                 auto_explore=(hmode in ("research", "autonomous")),
-                allow_browser_typing=(hmode == "autonomous"),
+                allow_browser_typing=("allow typing" in low),
                 auto_upgrade=(hmode == "autonomous"),
             )
             return {"status": "success", "reply": res["message"], "action": "start_hover", "details": res}

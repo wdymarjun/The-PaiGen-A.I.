@@ -327,7 +327,17 @@ class DesktopController:
 
     @classmethod
     def analyze_live_screen(cls, question: str = "What is currently displayed on my screen?") -> str:
-        """Captures screen and queries Qwen2.5-VL to analyze open windows, text, code, or media."""
+        """Captures screen and queries Qwen2.5-VL with strict privacy window & secret scrubbing."""
+        try:
+            import pygetwindow as gw
+            from paigen.brain.ai_style_trainer import is_private_window
+            act = gw.getActiveWindow()
+            title = (getattr(act, "title", "") or "").strip()
+            if title and is_private_window(title):
+                return "[Privacy Guard]: Screen capture skipped on sensitive window."
+        except Exception:
+            pass
+
         b64_img = cls.capture_screen_base64()
         if not b64_img:
             return "Unable to capture the screen at this moment."
@@ -335,12 +345,13 @@ class DesktopController:
         payload = {
             "model": VISION_MODEL,
             "stream": False,
-            "keep_alive": "45s",
+            "keep_alive": "25s",
             "messages": [{
                 "role": "user",
                 "content": (
                     "You have direct vision of the user's computer screen. "
                     "Analyze the open windows, active software, code, browser tabs, AI chat responses, or errors accurately and concisely. "
+                    "Do NOT transcribe passwords, tokens, OTPs, or financial numbers. "
                     "Question: " + question
                 ),
                 "images": [b64_img]
@@ -357,7 +368,12 @@ class DesktopController:
         try:
             with urllib.request.urlopen(req, timeout=45) as resp:
                 res = json.loads(resp.read().decode("utf-8"))
-                return res.get("message", {}).get("content", "").strip()
+                raw = res.get("message", {}).get("content", "").strip()
+                try:
+                    from paigen.brain.ai_style_trainer import scrub_sensitive_text
+                    return scrub_sensitive_text(raw)
+                except Exception:
+                    return raw
         except Exception as e:
             return f"[Vision Error]: {e}"
 
