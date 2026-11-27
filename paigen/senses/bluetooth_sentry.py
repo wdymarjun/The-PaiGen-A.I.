@@ -195,7 +195,7 @@ class JarvisSentry:
                     logger.info(f"Jarvis Speech: \"{greeting}\"")
                     
                     # Speak via PaiGen British Jarvis Voice Engine
-                    self.voice.speak(greeting, lang="en-GB")
+                    self.voice.speak(greeting)
                     
                 # State Transition: Connected -> Disconnected (Arjun Departs)
                 elif not currently_connected and self.is_connected:
