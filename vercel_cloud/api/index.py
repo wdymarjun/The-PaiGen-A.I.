@@ -114,6 +114,17 @@ def _init_parent_core() -> bool:
             return False
 
 
+def _start_parent_core_async():
+    """Warms full PaiGen ML/Cognitive core in background so HTTP port binds immediately."""
+    if PARENT_CORE_OK or _CORE_LOCK.locked():
+        return
+    threading.Thread(
+        target=_init_parent_core,
+        daemon=True,
+        name="paigen-parent-core-init",
+    ).start()
+
+
 # ─── Persistent State Store (Upstash Redis REST or Warm In-Memory Fallback) ──
 _MEM_KV: Dict[str, Any] = {}
 _MEM_QUEUE: List[Dict[str, Any]] = []
@@ -820,7 +831,8 @@ class handler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/ping":
-            core_ok = _init_parent_core()
+            warming_up = _CORE_LOCK.locked() and not PARENT_CORE_OK
+            core_ok = PARENT_CORE_OK if warming_up else _init_parent_core()
             hb = STORE.get_json("paigen:pc_heartbeat") or {}
             self._send_json({
                 "status": "online",
@@ -828,6 +840,7 @@ class handler(BaseHTTPRequestHandler):
                 "runtime": os.getenv("PAIGEN_RUNTIME", "vercel"),
                 "architecture": "full_paigen_v5" if core_ok else "relay_lite",
                 "parent_brain": core_ok,
+                "warming_up": warming_up,
                 "pc_online": _is_pc_online(),
                 "pc_hostname": hb.get("hostname", "PC Offline"),
                 "persistence": "upstash_redis" if STORE.use_redis else ("sqlite_and_memory" if core_ok else "memory_ring"),
@@ -1299,17 +1312,17 @@ def _get_app_version_manifest() -> Dict[str, Any]:
 
 
 def run_server(host: str = "0.0.0.0", port: Optional[int] = None):
-    """Starts continuous multi-threaded HTTP server for Render / container hosting."""
-    core_ok = _init_parent_core()
+    """Starts continuous multi-threaded HTTP server immediately; warms AI core in background."""
     bind_port = int(port or os.getenv("PORT", "8765"))
     srv = ThreadingHTTPServer((host, bind_port), handler)
+    _start_parent_core_async()
     emit_log(
         "INFO",
         "SYSTEM",
         f"PaiGen AI Render Parent Hub started on http://{host}:{bind_port}",
         {
             "runtime": os.getenv("PAIGEN_RUNTIME", "render"),
-            "parent_core": core_ok,
+            "parent_core_warming": not PARENT_CORE_OK,
             "auth": bool(os.getenv("PAIGEN_CLOUD_TOKEN")),
         },
     )
