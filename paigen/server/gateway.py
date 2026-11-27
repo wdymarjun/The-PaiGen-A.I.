@@ -750,6 +750,12 @@ async def handle_psychology_analyze(request: web.Request) -> web.Response:
         return web.json_response({"status": "error", "message": str(e)}, status=500)
 
 
+async def handle_job_status(request: web.Request) -> web.Response:
+    """Returns asynchronous background job state (`running`, `completed`, `failed`, `not_found`)."""
+    job_id = request.match_info.get("job_id", "")
+    return web.json_response(controller.get_job_status(job_id))
+
+
 async def handle_studio_status(request: web.Request) -> web.Response:
     """Returns live semantic Auto-Hover telemetry & Tri-Style Study report."""
     from paigen.brain.ai_style_trainer import AutonomousStyleStudio
@@ -1108,6 +1114,8 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
                         dirty_event.set()
                         if data.get("ack"):
                             await ws.send_json({"type": "input_result", "data": res})
+                    elif kind == "job_status":
+                        await ws.send_json({"type": "job_status", "data": controller.get_job_status(str(data.get("job_id", "")))})
                     elif kind == "chat":
                         loop = asyncio.get_event_loop()
                         res = await loop.run_in_executor(
@@ -1134,6 +1142,7 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
     finally:
         stream_cfg["active"] = False
         dirty_event.set()
+        controller.release_active_drag()
         if stream_task:
             stream_task.cancel()
         WS_CLIENTS.discard(ws)
@@ -1167,6 +1176,7 @@ def create_gateway_app() -> web.Application:
     app.router.add_get("/api/studio/status", handle_studio_status)
     app.router.add_post("/api/studio/hover", handle_studio_hover)
     app.router.add_post("/api/studio/study", handle_studio_study)
+    app.router.add_get("/api/jobs/{job_id}", handle_job_status)
     app.router.add_post("/api/telephony/webhook", handle_telephony_webhook)
     app.router.add_get("/api/telephony/calls", handle_telephony_calls)
     app.router.add_post("/api/telephony/session/start", handle_telephony_session_start)

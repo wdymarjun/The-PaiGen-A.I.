@@ -6,6 +6,7 @@ Architect: Arjun Singh
 import asyncio
 import io
 import json
+import os
 import re
 import unittest
 from unittest.mock import patch, MagicMock
@@ -80,24 +81,71 @@ class TestTelephonyBridge(unittest.TestCase):
         self.assertNotIn("<meta", res["reply_text"])
 
 
+def _make_fake_mss(red_dot: bool = False):
+    import numpy as np
+
+    class _FakeShot:
+        def __init__(self, dot: bool):
+            arr = np.zeros((1080, 1920, 4), dtype=np.uint8)
+            arr[10:120, 10:180, :3] = (30, 120, 210)
+            if dot:
+                # 16px red block simulating syntax error or blinking cursor highlight
+                arr[500:520, 500:520, :3] = (0, 0, 255)
+            self._arr = arr
+            self.size = (1920, 1080)
+            self.bgra = arr.tobytes()
+
+        def __array__(self, dtype=None, copy=None):
+            return self._arr
+
+    class _FakeMss:
+        monitors = [
+            {"left": 0, "top": 0, "width": 1920, "height": 1080},
+            {"left": 0, "top": 0, "width": 1920, "height": 1080},
+        ]
+
+        def __init__(self, dot: bool):
+            self._dot = dot
+
+        def grab(self, mon):
+            return _FakeShot(self._dot)
+
+    return _FakeMss(red_dot)
+
+
 class TestRemotePCController(unittest.TestCase):
     def setUp(self):
         self.controller = RemotePCController()
 
     def test_screen_capture_jpeg(self):
-        buf = self.controller.get_screen_capture_jpeg()
-        self.assertIsInstance(buf, bytes)
-        self.assertTrue(len(buf) > 0)
-        # Verify JPEG magic bytes FF D8
-        self.assertEqual(buf[:2], b"\xff\xd8")
+        with patch.dict(os.environ, {"PAIGEN_DISABLE_DXGI": "1"}), \
+             patch("paigen.mobile.remote_control._get_mss_instance", return_value=_make_fake_mss()):
+            buf = self.controller.get_screen_capture_jpeg()
+            self.assertIsInstance(buf, bytes)
+            self.assertTrue(len(buf) > 0)
+            self.assertEqual(buf[:2], b"\xff\xd8")
 
     def test_differential_screen_capture_and_gestures(self):
-        buf1, sig1, meta1 = self.controller.get_screen_frame_if_changed(force=True)
-        self.assertIsInstance(buf1, bytes)
-        self.assertEqual(buf1[:2], b"\xff\xd8")
-        self.assertTrue(meta1.get("changed"))
-        self.assertIn("sw", meta1)
-        self.assertIn("sh", meta1)
+        with patch.dict(os.environ, {"PAIGEN_DISABLE_DXGI": "1"}), \
+             patch("paigen.mobile.remote_control._get_mss_instance", return_value=_make_fake_mss(False)):
+            buf1, sig1, meta1 = self.controller.get_screen_frame_if_changed(force=True)
+            self.assertIsInstance(buf1, bytes)
+            self.assertEqual(buf1[:2], b"\xff\xd8")
+            self.assertTrue(meta1.get("changed"))
+            self.assertIn("sw", meta1)
+            self.assertIn("sh", meta1)
+
+            # Identical static frame should skip encoding cleanly
+            buf2, sig2, meta2 = self.controller.get_screen_frame_if_changed(prev_sig=sig1, force=False)
+            self.assertIsNone(buf2)
+            self.assertFalse(meta2.get("changed"))
+
+        # Red syntax squiggle/highlight pixel delta triggers 3-channel absdiff capture
+        with patch.dict(os.environ, {"PAIGEN_DISABLE_DXGI": "1"}), \
+             patch("paigen.mobile.remote_control._get_mss_instance", return_value=_make_fake_mss(True)):
+            buf3, sig3, meta3 = self.controller.get_screen_frame_if_changed(prev_sig=sig2, force=False)
+            self.assertIsInstance(buf3, bytes)
+            self.assertTrue(meta3.get("changed"))
 
         with patch("paigen.mobile.remote_control.platform.system", return_value="Linux"), \
              patch("pyautogui.click") as mock_click, \
@@ -120,20 +168,121 @@ class TestRemotePCController(unittest.TestCase):
             self.assertEqual(r_scr["status"], "success")
             mock_scroll.assert_called_with(-240)
 
+    def test_locked_desktop_signals_locked_without_fake_frame(self):
+        class _FailMss:
+            monitors = [{"left": 0, "top": 0, "width": 1920, "height": 1080}, {"left": 0, "top": 0, "width": 1920, "height": 1080}]
+            def grab(self, mon):
+                raise RuntimeError("BitBlt: Access is denied.")
+
+        from paigen.mobile.remote_control import AdaptiveScreenCapturer
+        cap = AdaptiveScreenCapturer()
+        with patch.dict(os.environ, {"PAIGEN_DISABLE_DXGI": "1"}), \
+             patch("paigen.mobile.remote_control._get_mss_instance", return_value=_FailMss()):
+            buf, sig, meta = cap.capture_if_changed(force=True)
+            self.assertIsNone(buf)
+            self.assertEqual(meta.get("screen_state"), "locked_or_unavailable")
+
     @patch("ctypes.windll.user32.LockWorkStation", create=True)
     def test_lock_workstation(self, mock_lock):
         mock_lock.return_value = 1
         res = self.controller.lock_workstation()
         self.assertEqual(res["status"], "success")
 
-    def test_set_system_volume(self):
-        res = self.controller.set_system_volume(42)
-        self.assertEqual(res["status"], "success")
-        self.assertEqual(res["level"], 42)
+        mock_lock.return_value = 0
+        res_fail = self.controller.lock_workstation()
+        self.assertEqual(res_fail["status"], "error")
+
+    def test_set_system_volume_core_audio(self):
+        fake_ep = MagicMock()
+        fake_ep.GetMute.return_value = 0
+        fake_ep.GetMasterVolumeLevelScalar.return_value = 0.5
+        fake_dev = MagicMock()
+        fake_dev.EndpointVolume = fake_ep
+        with patch("paigen.mobile.remote_control.platform.system", return_value="Windows"), \
+             patch("comtypes.CoInitialize"), \
+             patch("comtypes.CoUninitialize"), \
+             patch("pycaw.pycaw.AudioUtilities.GetSpeakers", return_value=fake_dev):
+            res = self.controller.set_system_volume(42)
+            self.assertEqual(res["status"], "success")
+            self.assertEqual(res["level"], 42)
+            fake_ep.SetMasterVolumeLevelScalar.assert_called_with(0.42, None)
+
+            res_mute = self.controller.set_system_volume("mute")
+            self.assertEqual(res_mute["status"], "success")
+            self.assertTrue(res_mute["muted"])
+            fake_ep.SetMute.assert_called_with(1, None)
+
+    def test_intent_safe_command_router_excludes_questions(self):
+        with patch.object(self.controller, "lock_workstation") as m_lock, \
+             patch.object(self.controller.brain, "query", return_value="Lock screen docs answer."):
+            q_res = self.controller.execute_remote_command("How does Windows lock screen work?")
+            self.assertEqual(q_res["action"], "chat")
+            m_lock.assert_not_called()
+
+            m_lock.return_value = {"status": "success"}
+            cmd_res = self.controller.execute_remote_command("Lock my pc now")
+            self.assertEqual(cmd_res["action"], "lock")
+            m_lock.assert_called_once()
+
+    def test_async_job_tracker_non_blocking_and_dedup(self):
+        evt = __import__("threading").Event()
+        def _slow_task():
+            evt.wait(timeout=1.5)
+            return {"status": "success", "avg_rubric_score": 0.96}
+
+        sub1 = self.controller.jobs.submit("upgrade_llm", _slow_task)
+        sub2 = self.controller.jobs.submit("upgrade_llm", _slow_task)
+        self.assertEqual(sub1["status"], "accepted")
+        self.assertEqual(sub2["status"], "already_running")
+        self.assertEqual(sub1["job_id"], sub2["job_id"])
+        evt.set()
+        for _ in range(30):
+            st = self.controller.get_job_status(sub1["job_id"])
+            if st["status"] == "completed":
+                break
+            __import__("time").sleep(0.05)
+        self.assertEqual(self.controller.get_job_status(sub1["job_id"])["status"], "completed")
+
+    def test_win32_input_engine_safety_virtualdesk_and_unicode(self):
+        from paigen.mobile.remote_control import Win32InputEngine
+        eng = Win32InputEngine(drag_timeout_sec=2.0)
+        sent_counts = []
+        eng._u32 = MagicMock()
+        eng._u32.GetSystemMetrics.side_effect = lambda idx: {-99: 0, 76: -1920, 77: 0, 78: 3840, 79: 1080}[idx]
+        eng._send = lambda evs: sent_counts.append(len(evs)) or len(evs)
+
+        # Negative virtual desktop coordinate maps into [0..65535] instead of clamping to 0
+        ax, ay = eng._to_virtual_abs(-960, 540)
+        self.assertTrue(16000 <= ax <= 16500)
+        self.assertTrue(32000 <= ay <= 33500)
+
+        # Unicode Hindi + Emoji types directly via SendInput chunks without clipboard
+        written = eng.type_unicode("नमस्ते 🚀")
+        self.assertGreater(written, 0)
+
+        # Blocked dangerous hotkeys cannot execute by default
+        ok_blk, _ = eng.send_hotkey("alt+f4", allow_dangerous=False)
+        self.assertFalse(ok_blk)
+        ok_safe, _ = eng.send_hotkey("ctrl+c")
+        self.assertTrue(ok_safe)
+
+        # Drag watchdog forces LEFTUP release cleanly
+        eng.mouse_down(100, 100)
+        self.assertTrue(eng._drag_active)
+        self.assertTrue(eng.force_release_mouse())
+        self.assertFalse(eng._drag_active)
+
+    def test_system_stats_env_port_and_telemetry(self):
+        with patch.dict("os.environ", {"PAIGEN_GATEWAY_PORT": "9123"}):
+            stats = self.controller.get_system_stats()
+            self.assertEqual(stats["gateway_port"], 9123)
+            self.assertIn("cpu_percent", stats)
+            self.assertIn("ram_percent", stats)
 
     def test_execute_remote_command_unknown(self):
-        res = self.controller.execute_remote_command("nonexistent_action_xyz")
-        self.assertIn("status", res)
+        with patch.object(self.controller.brain, "query", return_value="Handled cleanly."):
+            res = self.controller.execute_remote_command("nonexistent_action_xyz")
+            self.assertEqual(res["status"], "success")
 
 
 class TestGatewayEndpoints(AioHTTPTestCase):
@@ -151,12 +300,21 @@ class TestGatewayEndpoints(AioHTTPTestCase):
 
     @unittest_run_loop
     async def test_screen_endpoint(self):
-        resp = await self.client.request("GET", "/api/screen")
+        with patch.dict(os.environ, {"PAIGEN_DISABLE_DXGI": "1"}), \
+             patch("paigen.mobile.remote_control._get_mss_instance", return_value=_make_fake_mss()):
+            resp = await self.client.request("GET", "/api/screen")
+            self.assertEqual(resp.status, 200)
+            self.assertEqual(resp.headers.get("Content-Type"), "image/jpeg")
+            data = await resp.read()
+            self.assertTrue(len(data) > 0)
+            self.assertEqual(data[:2], b"\xff\xd8")
+
+    @unittest_run_loop
+    async def test_jobs_endpoint(self):
+        resp = await self.client.request("GET", "/api/jobs/nonexistent_123")
         self.assertEqual(resp.status, 200)
-        self.assertEqual(resp.headers.get("Content-Type"), "image/jpeg")
-        data = await resp.read()
-        self.assertTrue(len(data) > 0)
-        self.assertEqual(data[:2], b"\xff\xd8")
+        payload = await resp.json()
+        self.assertEqual(payload.get("status"), "not_found")
 
     @unittest_run_loop
     async def test_telephony_calls_endpoint(self):
@@ -344,29 +502,31 @@ class TestGatewayEndpoints(AioHTTPTestCase):
     @unittest_run_loop
     async def test_ws_binary_v2_screen_stream_and_input(self):
         import struct
-        async with self.client.ws_connect("/ws") as ws:
-            hello = await ws.receive_json()
-            self.assertEqual(hello["type"], "connected")
-            self.assertEqual(hello["proto_max"], 2)
+        with patch.dict(os.environ, {"PAIGEN_DISABLE_DXGI": "1"}), \
+             patch("paigen.mobile.remote_control._get_mss_instance", return_value=_make_fake_mss()):
+            async with self.client.ws_connect("/ws") as ws:
+                hello = await ws.receive_json()
+                self.assertEqual(hello["type"], "connected")
+                self.assertEqual(hello["proto_max"], 2)
 
-            await ws.send_json({
-                "type": "stream_screen_start",
-                "proto": 2,
-                "fps": 30,
-                "quality": 50,
-                "max_width": 640,
-                "draw_cursor": True,
-            })
-            frame_msg = await ws.receive(timeout=4.0)
-            raw = frame_msg.data
-            self.assertIsInstance(raw, bytes)
-            self.assertGreater(len(raw), 17)
-            magic, seq, cap_ms, cx_u16, cy_u16, sw, sh, flags = struct.unpack("<2sIH4HB", raw[:17])
-            self.assertEqual(magic, b"PG")
-            self.assertGreaterEqual(seq, 1)
-            self.assertEqual(raw[17:19], b"\xff\xd8")
+                await ws.send_json({
+                    "type": "stream_screen_start",
+                    "proto": 2,
+                    "fps": 30,
+                    "quality": 50,
+                    "max_width": 640,
+                    "draw_cursor": True,
+                })
+                frame_msg = await ws.receive(timeout=4.0)
+                raw = frame_msg.data
+                self.assertIsInstance(raw, bytes)
+                self.assertGreater(len(raw), 17)
+                magic, seq, cap_ms, cx_u16, cy_u16, sw, sh, flags = struct.unpack("<2sIH4HB", raw[:17])
+                self.assertEqual(magic, b"PG")
+                self.assertGreaterEqual(seq, 1)
+                self.assertEqual(raw[17:19], b"\xff\xd8")
 
-            await ws.send_json({"type": "stream_screen_stop"})
+                await ws.send_json({"type": "stream_screen_stop"})
 
 
 if __name__ == "__main__":

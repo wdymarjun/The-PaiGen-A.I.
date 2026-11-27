@@ -73,9 +73,29 @@ class TestVercelCloudRelay(unittest.TestCase):
                 self.assertIn("CHAT", cats)
 
     def test_uplink_roundtrip_pc_control_and_screen(self):
+        import numpy as np
         vercel_api._MEM_KV.clear()
         vercel_api._MEM_QUEUE.clear()
-        with patch.dict(os.environ, {"PAIGEN_CLOUD_TOKEN": "secret123"}):
+
+        class _FakeShot:
+            def __init__(self):
+                arr = np.zeros((1080, 1920, 4), dtype=np.uint8)
+                arr[20:140, 20:200, :3] = (40, 180, 240)
+                self._arr = arr
+                self.size = (1920, 1080)
+                self.bgra = arr.tobytes()
+
+            def __array__(self, dtype=None, copy=None):
+                return self._arr
+
+        class _FakeMss:
+            monitors = [{"left": 0, "top": 0, "width": 1920, "height": 1080}, {"left": 0, "top": 0, "width": 1920, "height": 1080}]
+            def grab(self, mon):
+                return _FakeShot()
+
+        with patch.dict(os.environ, {"PAIGEN_CLOUD_TOKEN": "secret123", "PAIGEN_DISABLE_DXGI": "1"}), \
+             patch("paigen.mobile.remote_control._get_mss_instance", return_value=_FakeMss()), \
+             patch("paigen.mobile.remote_control.RemotePCController.set_system_volume", return_value={"status": "success", "level": 65}):
             worker = CloudUplinkWorker(cloud_url=self.base_url, cloud_token="secret123", poll_interval_sec=0.1)
             worker.send_heartbeat()
             worker.push_screen()
