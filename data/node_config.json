@@ -1,0 +1,34 @@
+{
+  "node_id": "home-sentinel-01",
+  "node_name": "PaiGen Home Sentinel",
+  "node_role": "secondary_brain_home_sentry",
+  "description": "Always-on home perception, Bluetooth sentry, mobile gateway, and acoustic Jarvis interface.",
+  "master_core": {
+    "host_machine": "HP OMEN 16 (Ryzen AI 7 + NVIDIA RTX 5050 8GB VRAM)",
+    "role": "central_neural_training_and_inference_core",
+    "default_lan_ollama_url": "http://192.168.1.100:11434",
+    "cloud_relay_url": "https://paigen-ai-cloud.onrender.com"
+  },
+  "bluetooth_sentry": {
+    "enabled": true,
+    "primary_proximity_device": {
+      "name": "CH",
+      "mac": "414235d0df57",
+      "type": "audio_headset_speaker"
+    },
+    "paired_devices": [
+      { "name": "vivo V29", "mac": "a805560b9584", "type": "smartphone" },
+      { "name": "WH-CH520", "mac": "1406a79aa560", "type": "sony_headphones" },
+      { "name": "Hero Shakti 2025", "mac": "691bd15d6261", "type": "smart_device" }
+    ],
+    "jarvis_welcome_enabled": true,
+    "voice_accent": "en-GB",
+    "poll_interval_seconds": 3.0
+  },
+  "mobile_gateway": {
+    "port": 8765,
+    "allow_remote_pc_control": true,
+    "live_screen_stream": true,
+    "telephony_guardian": true
+  }
+}
