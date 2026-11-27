@@ -321,29 +321,74 @@ class RemotePCController:
             sr = AutonomousStyleStudio.get_study_report()
             return {
                 "status": "success",
-                "reply": f"Hover={hv.get('active')} ({hv.get('mode')}, waypoint={hv.get('current_waypoint')}); Study={sr.get('avg_rubric_score', '--')} rubric.",
+                "reply": (
+                    f"Hover={hv.get('active')} ({hv.get('mode')}, app={hv.get('active_window')}, "
+                    f"topic={hv.get('current_topic') or '--'}, learned={hv.get('learned_count', 0)}); "
+                    f"Study={sr.get('avg_rubric_score', '--')} rubric, directives={len(sr.get('learned_directives', []))}."
+                ),
                 "action": "studio_status",
                 "details": {"hover": hv, "study": sr},
             }
 
-        if any(w in low for w in ("hover pc", "auto hover", "hover research", "hover inspect", "hover focus", "open claude and chat")):
+        if any(w in low for w in ("hover pc", "auto hover", "hover autonomous", "hover explore", "hover research", "hover inspect", "hover focus", "open claude and chat")):
             from paigen.brain.ai_style_trainer import AutonomousStyleStudio
-            hmode = "inspect" if "inspect" in low else ("focus_guard" if "focus" in low else "research")
-            res = AutonomousStyleStudio.start_hover(open_portals=(hmode == "research"), duration_sec=60.0, mode=hmode)
+            if any(k in low for k in ("autonomous", "explore", "self learn", "random search")):
+                hmode = "autonomous"
+            elif "inspect" in low:
+                hmode = "inspect"
+            elif "focus" in low:
+                hmode = "focus_guard"
+            else:
+                hmode = "research"
+            res = AutonomousStyleStudio.start_hover(
+                open_portals=(hmode in ("research", "autonomous")),
+                duration_sec=120.0 if hmode == "autonomous" else 60.0,
+                mode=hmode,
+                auto_explore=(hmode in ("research", "autonomous")),
+                allow_browser_typing=(hmode == "autonomous"),
+                auto_upgrade=(hmode == "autonomous"),
+            )
             return {"status": "success", "reply": res["message"], "action": "start_hover", "details": res}
+
+        if any(w in low for w in ("upgrade llm", "self upgrade", "self-upgrade", "evolve llm")):
+            from paigen.brain.ai_style_trainer import AutonomousStyleStudio
+            distilled = AutonomousStyleStudio.distill_tri_style_and_retrain(
+                use_live_llm=True,
+                explore_random_topics=3,
+                enable_screen_context=True,
+                auto_upgrade=True,
+            )
+            m = distilled["ml_metrics"]
+            return {
+                "status": "success",
+                "reply": (
+                    f"Self-Upgrade complete: studied {len(distilled.get('random_topics_studied', []))} fresh topics, "
+                    f"added {distilled['added_chatml']} ChatML samples, {distilled['learned_directives_count']} live directives, "
+                    f"ML Triage {m['val_triage_accuracy']*100:.1f}%, QLoRA={distilled.get('self_upgrade')}."
+                ),
+                "action": "ai_self_upgrade",
+                "details": distilled,
+            }
 
         if any(w in low for w in ("study claude", "analyze claude", "claude gemini chatgpt", "open claude")):
             from paigen.brain.ai_style_trainer import AutonomousStyleStudio
             opened = AutonomousStyleStudio.open_ai_portals(["claude", "gemini", "chatgpt"])
-            distilled = AutonomousStyleStudio.distill_tri_style_and_retrain(use_live_llm=("live" in low))
+            distilled = AutonomousStyleStudio.distill_tri_style_and_retrain(
+                use_live_llm=True,
+                explore_random_topics=3,
+                enable_screen_context=True,
+                auto_upgrade=("upgrade" in low or "lora" in low),
+            )
             m = distilled["ml_metrics"]
             ho = distilled.get("adversarial_holdout") or {}
+            topics_txt = ", ".join(t[:32] for t in distilled.get("random_topics_studied", [])[:2])
             return {
                 "status": "success",
                 "reply": (
-                    f"{opened['message']} Tri-style study ({distilled['benchmarks_evaluated']} benchmarks, "
-                    f"rubric {distilled['avg_rubric_score']}) -> Triage {m['val_triage_accuracy']*100:.1f}%, "
-                    f"Psych {m['val_state_accuracy']*100:.1f}%, Holdout {ho.get('adversarial_triage_acc', 1.0)*100:.0f}%."
+                    f"{opened['message']} Tri-style study ({distilled['benchmarks_evaluated']} benchmarks + random: [{topics_txt}], "
+                    f"rubric {distilled['avg_rubric_score']}) -> +{distilled['added_chatml']} ChatML, "
+                    f"{distilled['learned_directives_count']} directives, Triage {m['val_triage_accuracy']*100:.1f}%, "
+                    f"Holdout {ho.get('adversarial_triage_acc', 1.0)*100:.0f}%."
                 ),
                 "action": "ai_style_study",
                 "details": distilled,

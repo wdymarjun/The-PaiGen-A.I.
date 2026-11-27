@@ -184,6 +184,15 @@ class CognitiveBrain:
                 + "\nTreat these as past observations; ask the user to look again if current visual state matters.\n"
             )
 
+        learned_block = ""
+        try:
+            from paigen.brain.ai_style_trainer import load_learned_directives
+            rules = load_learned_directives(max_rules=5)
+            if rules:
+                learned_block = "\n[SELF-DISTILLED STUDIO DIRECTIVES]:\n" + "\n".join(f"- {r}" for r in rules)
+        except Exception:
+            pass
+
         creator_display = f"{ctx.user_name} Singh" if ctx.user_name.lower() == "arjun" else ctx.user_name
         prompt = f"""You are PaiGen AI, a 100% local, privacy-first autonomous executive intelligence, research engine, and continually evolving co-pilot architected by {creator_display}.
 
@@ -222,7 +231,7 @@ ACTIVE BEHAVIORAL DIRECTIVE:
 )}
 {visual_context}
 {psych_block}
-{cited_block}
+{cited_block}{learned_block}
 {HistoricalAdvisor.build_epistemic_system_prompt_addon()}
 
 STRICT INVARIANT: You run 100% locally on localhost. Zero cloud calls."""

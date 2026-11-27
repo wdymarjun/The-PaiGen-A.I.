@@ -300,6 +300,7 @@
         <div class="card-hdr">
           <span class="card-title">Launch Desktop Apps &amp; AI Style Studio</span>
           <select id="hoverModeSel" style="background:var(--surface-2);color:#fff;border:1px solid var(--border);border-radius:8px;padding:3px 7px;font-size:10px;">
+            <option value="autonomous">Mode: Auto Explore &amp; Upgrade</option>
             <option value="research">Mode: AI Research</option>
             <option value="inspect">Mode: Code/UI Inspect</option>
             <option value="focus_guard">Mode: Focus Guard</option>
@@ -312,6 +313,7 @@
           <button class="btn btn-ghost btn-sm" onclick="launchApp('whatsapp')">💬 WhatsApp</button>
           <button class="btn btn-cyan btn-sm" onclick="runAiStyleStudy()">🧠 Study Claude/Gemini/GPT</button>
           <button class="btn btn-ghost btn-sm" id="btnHoverPc" onclick="togglePcHover()">🖱 Auto-Hover: OFF</button>
+          <button class="btn btn-ghost btn-sm" style="grid-column:span 2;" onclick="runSelfUpgradeLlm()">🧬 Self-Study &amp; Upgrade LLM</button>
         </div>
         <div id="studioStatusBox" style="font-size:11px;color:var(--muted);margin-top:8px;padding:7px 9px;border:1px solid var(--border);border-radius:10px;background:#080808;">
           Hover: Bezier window-aware navigation + auto user-yield ready.
@@ -1889,12 +1891,13 @@
         const hv = d.hover || {};
         const st = d.study || {};
         const hvLine = hv.active
-          ? `HOVER [${hv.mode}] • ${hv.active_window} -> ${hv.current_waypoint}${hv.yielded_to_user ? ' (Paused: User Moved Mouse)' : ''}`
-          : 'Hover: Idle (Bezier + Auto User-Yield ready)';
+          ? `HOVER [${hv.mode}] • ${hv.active_window} (${hv.laptop_category || 'app'}) -> ${hv.current_waypoint}${hv.yielded_to_user ? ' (Paused: User Moved Mouse)' : ''}`
+          : 'Hover: Idle (Workspace Bezier + Self-Study ready)';
+        const topicLine = hv.current_topic ? `\nResearching: ${hv.current_topic} (learned +${hv.learned_count || 0})` : '';
         const stLine = st.benchmarks_evaluated
-          ? ` • Study: ${st.benchmarks_evaluated} prompts (Rubric ${st.avg_rubric_score}, Triage ${(st.ml_metrics?.val_triage_accuracy*100||0).toFixed(1)}%)`
+          ? `\nStudy: ${st.benchmarks_evaluated} benchmarks + ${st.learned_directives_count || (st.learned_directives || []).length} rules (Rubric ${st.avg_rubric_score}, Triage ${(st.ml_metrics?.val_triage_accuracy*100||0).toFixed(1)}%)`
           : '';
-        box.innerText = hvLine + stLine + (hv.observation ? `\nEye: ${hv.observation}` : '');
+        box.innerText = hvLine + topicLine + stLine + (hv.observation ? `\nEye: ${hv.observation}` : '');
       } catch (e) {}
     }
 
@@ -1902,9 +1905,9 @@
       hoverActive = !hoverActive;
       const btn = document.getElementById('btnHoverPc');
       const modeSel = document.getElementById('hoverModeSel');
-      const mode = modeSel ? modeSel.value : 'research';
+      const mode = modeSel ? modeSel.value : 'autonomous';
       if (btn) btn.innerText = hoverActive ? '🖱 Auto-Hover: ON' : '🖱 Auto-Hover: OFF';
-      const cmd = !hoverActive ? 'stop hover' : (mode === 'inspect' ? 'hover inspect' : (mode === 'focus_guard' ? 'hover focus' : 'hover research'));
+      const cmd = !hoverActive ? 'stop hover' : (mode === 'autonomous' ? 'hover autonomous' : (mode === 'inspect' ? 'hover inspect' : (mode === 'focus_guard' ? 'hover focus' : 'hover research')));
       await sendMainQuery(cmd);
       if (hoverPollHandle) clearInterval(hoverPollHandle);
       if (hoverActive) {
@@ -1916,8 +1919,14 @@
     }
     async function runAiStyleStudy() {
       switchTab('tab-core');
-      addChatMsg('mainChatBox', 'Running 10-benchmark Tri-Style Study (Claude/Gemini/GPT) + Rubric + ML retrain...', 'sys');
+      addChatMsg('mainChatBox', 'Studying Claude/Gemini/GPT + random curiosity topics + live screen reading...', 'sys');
       await sendMainQuery('study claude gemini chatgpt');
+      refreshStudioTelemetry();
+    }
+    async function runSelfUpgradeLlm() {
+      switchTab('tab-core');
+      addChatMsg('mainChatBox', 'Running self-research, directive distillation, ML retrain & LLM QLoRA upgrade...', 'sys');
+      await sendMainQuery('upgrade llm');
       refreshStudioTelemetry();
     }
 

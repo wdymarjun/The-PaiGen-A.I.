@@ -761,24 +761,31 @@ async def handle_studio_status(request: web.Request) -> web.Response:
 
 
 async def handle_studio_hover(request: web.Request) -> web.Response:
-    """Starts or stops window-aware Cubic-Bezier Auto-Hover."""
+    """Starts or stops workspace-aware Cubic-Bezier Auto-Hover & curiosity exploration."""
     try:
         data = await request.json() if request.can_read_body else {}
         from paigen.brain.ai_style_trainer import AutonomousStyleStudio
         action = str(data.get("action", "start")).lower()
         if action == "stop":
             return web.json_response(AutonomousStyleStudio.stop_hover())
-        mode = str(data.get("mode", "research"))
-        open_portals = bool(data.get("open_portals", mode == "research"))
-        duration = float(data.get("duration_sec", 60.0))
-        res = AutonomousStyleStudio.start_hover(open_portals=open_portals, duration_sec=duration, mode=mode)
+        mode = str(data.get("mode", "autonomous"))
+        open_portals = bool(data.get("open_portals", mode in ("research", "autonomous")))
+        duration = float(data.get("duration_sec", 90.0))
+        res = AutonomousStyleStudio.start_hover(
+            open_portals=open_portals,
+            duration_sec=duration,
+            mode=mode,
+            auto_explore=bool(data.get("auto_explore", mode in ("research", "autonomous"))),
+            allow_browser_typing=bool(data.get("allow_browser_typing", mode == "autonomous")),
+            auto_upgrade=bool(data.get("auto_upgrade", mode == "autonomous")),
+        )
         return web.json_response(res)
     except Exception as e:
         return web.json_response({"status": "error", "message": str(e)}, status=500)
 
 
 async def handle_studio_study(request: web.Request) -> web.Response:
-    """Runs multi-benchmark Tri-Style (Claude/Gemini/ChatGPT) study & ML retrain."""
+    """Runs multi-benchmark + random curiosity Tri-Style study, screen reading, and optional LLM upgrade."""
     try:
         data = await request.json() if request.can_read_body else {}
         from paigen.brain.ai_style_trainer import AutonomousStyleStudio
@@ -786,7 +793,13 @@ async def handle_studio_study(request: web.Request) -> web.Response:
         if data.get("open_portals", True):
             await loop.run_in_executor(None, AutonomousStyleStudio.open_ai_portals, ["claude", "gemini", "chatgpt"])
         res = await loop.run_in_executor(
-            None, AutonomousStyleStudio.distill_tri_style_and_retrain, bool(data.get("use_live_llm", False))
+            None,
+            lambda: AutonomousStyleStudio.distill_tri_style_and_retrain(
+                use_live_llm=bool(data.get("use_live_llm", True)),
+                explore_random_topics=int(data.get("explore_random_topics", 3)),
+                enable_screen_context=bool(data.get("enable_screen_context", True)),
+                auto_upgrade=bool(data.get("auto_upgrade", False)),
+            ),
         )
         return web.json_response(res)
     except Exception as e:

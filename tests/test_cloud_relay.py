@@ -191,8 +191,8 @@ class TestVercelCloudRelay(unittest.TestCase):
             )
             with urllib.request.urlopen(req_ver, timeout=4) as resp:
                 vdata = json.loads(resp.read().decode("utf-8"))
-                self.assertTrue(vdata.get("version_code", 0) >= 11)
-                self.assertEqual(vdata.get("version_name"), "5.4.0")
+                self.assertTrue(vdata.get("version_code", 0) >= 12)
+                self.assertEqual(vdata.get("version_name"), "5.5.0")
                 self.assertTrue(len(vdata.get("bundle_sha256", "")) == 64)
             req_bun = urllib.request.Request(
                 f"{self.base_url}/api/app/bundle",
