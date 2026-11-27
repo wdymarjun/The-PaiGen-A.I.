@@ -1,4 +1,4 @@
-﻿# ==============================================================================
+# ==============================================================================
 # PaiGen AI — Pure Android SDK APK Compiler & Signer (Zero-Gradle Fast Build)
 # Uses Android SDK (aapt2, d8, zipalign, apksigner) + Android Studio JBR JDK
 # ==============================================================================
@@ -93,6 +93,8 @@ $ApkHash = (Get-FileHash $FinalApk -Algorithm SHA256).Hash.ToLower()
 $ApkSize = (Get-Item $FinalApk).Length
 $JsonStr = @{ version_code = $Vc; version_name = $Vn; bundle_sha256 = $BundleHash; apk_sha256 = $ApkHash; apk_size = $ApkSize } | ConvertTo-Json
 [System.IO.File]::WriteAllText($VersionJsonPath, $JsonStr, (New-Object System.Text.UTF8Encoding $false))
+$CloudStampPath = Join-Path (Split-Path $Root -Parent) "vercel_cloud\release_manifest.json"
+[System.IO.File]::WriteAllText($CloudStampPath, $JsonStr, (New-Object System.Text.UTF8Encoding $false))
 
 $SizeMB = [math]::Round((Get-Item $FinalApk).Length / 1KB, 1)
 Write-Host "`n[+] SUCCESS! Built & verified signed APK: $FinalApk ($SizeMB KB)"
