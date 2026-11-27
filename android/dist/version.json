@@ -1,7 +1,7 @@
 {
-    "apk_size":  70743,
-    "apk_sha256":  "5b167fa0921117c0dc578d21bb79d01d7b4998a14b0a1d768a824ea683f57604",
-    "bundle_sha256":  "d4df7528705afa8d6b94843c9918a1d074f6d7022efaa5b2520e1e28ef36eb79",
-    "version_code":  12,
-    "version_name":  "5.5.0"
+    "apk_size":  74839,
+    "apk_sha256":  "3ed7b5b4a735e4f5f97d3c028de5ec8fdc7f108430695b95544feff7019d5e6d",
+    "bundle_sha256":  "d8ff719bcde757acf4b51a9d5c68ca0d4968329200e51e8c21021b408875b57f",
+    "version_code":  13,
+    "version_name":  "5.6.0"
 }

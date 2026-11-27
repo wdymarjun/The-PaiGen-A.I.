@@ -313,10 +313,16 @@
           <button class="btn btn-ghost btn-sm" onclick="launchApp('whatsapp')">💬 WhatsApp</button>
           <button class="btn btn-cyan btn-sm" onclick="runAiStyleStudy()">🧠 Study Claude/Gemini/GPT</button>
           <button class="btn btn-ghost btn-sm" id="btnHoverPc" onclick="togglePcHover()">🖱 Auto-Hover: OFF</button>
+          <button class="btn btn-ghost btn-sm" onclick="sendMainQuery('confirm')">✅ Confirm Staged</button>
+          <button class="btn btn-ghost btn-sm" onclick="sendMainQuery('cancel')">❌ Cancel Staged</button>
           <button class="btn btn-ghost btn-sm" style="grid-column:span 2;" onclick="runSelfUpgradeLlm()">🧬 Self-Study &amp; Upgrade LLM</button>
         </div>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <input id="operatorGoalInp" class="inp" style="flex:1;padding:7px 10px;font-size:12px;" placeholder="Bounded Operator task (e.g. Open Notepad and wait)..." />
+          <button class="btn btn-cyan btn-sm" onclick="runOperatorTask()">🤖 Run</button>
+        </div>
         <div id="studioStatusBox" style="font-size:11px;color:var(--muted);margin-top:8px;padding:7px 9px;border:1px solid var(--border);border-radius:10px;background:#080808;">
-          Hover: Bezier window-aware navigation + auto user-yield ready.
+          Hover: Bezier window-aware navigation + UIA/SoM + 45s TTL safety ready.
         </div>
       </div>
     </section>
@@ -845,6 +851,9 @@
         const data = await res.json();
         const reply = data.reply || data.message || 'Done.';
         addChatMsg('mainChatBox', reply, 'ai');
+        if (data.job_id) {
+          pollJobUntilDone(data.job_id);
+        }
         const hasHi = /[\u0900-\u097F]/.test(reply);
         speakOut(reply, hasHi ? 'hi' : 'en', null);
       } catch (e) {
@@ -1923,9 +1932,53 @@
       await sendMainQuery('study claude gemini chatgpt');
       refreshStudioTelemetry();
     }
+    async function pollJobUntilDone(jobId) {
+      if (!jobId) return;
+      const box = document.getElementById('studioStatusBox');
+      const bases = [];
+      if (typeof PC_LAN_IP === 'string' && PC_LAN_IP && PC_LAN_IP !== '127.0.0.1') {
+        bases.push(`http://${PC_LAN_IP}:${PC_GW_PORT || 8765}`);
+      }
+      bases.push(SERVER_URL);
+      for (let attempt = 0; attempt < 36; attempt++) {
+        await new Promise(r => setTimeout(r, 2500));
+        for (const base of bases) {
+          try {
+            const res = await fetch(`${base}/api/jobs/${encodeURIComponent(jobId)}`);
+            if (!res.ok) continue;
+            const st = await res.json();
+            if (st.status === 'completed') {
+              const summary = st.result?.message || st.result?.summary || `Job ${jobId} completed.`;
+              addChatMsg('mainChatBox', summary, 'ai');
+              if (box) box.innerText = `Job done: ${summary}`;
+              refreshStudioTelemetry();
+              return;
+            }
+            if (st.status === 'failed') {
+              const err = `Job ${jobId} failed: ${st.error || 'unknown error'}`;
+              addChatMsg('mainChatBox', err, 'sys');
+              if (box) box.innerText = err;
+              return;
+            }
+          } catch (e) {}
+        }
+      }
+    }
+
+    async function runOperatorTask() {
+      const inp = document.getElementById('operatorGoalInp');
+      const goal = (inp ? inp.value : '').trim();
+      if (!goal) return;
+      if (inp) inp.value = '';
+      switchTab('tab-core');
+      addChatMsg('mainChatBox', `Operator: ${goal}`, 'user');
+      await sendMainQuery(`operator: ${goal}`);
+      refreshStudioTelemetry();
+    }
+
     async function runSelfUpgradeLlm() {
       switchTab('tab-core');
-      addChatMsg('mainChatBox', 'Running self-research, directive distillation, ML retrain & LLM QLoRA upgrade...', 'sys');
+      addChatMsg('mainChatBox', 'Running async self-research, entailment-gated distillation & LLM upgrade...', 'sys');
       await sendMainQuery('upgrade llm');
       refreshStudioTelemetry();
     }
@@ -1937,7 +1990,7 @@
         try {
           const st = JSON.parse(PaiGenNative.getAppUpdateStatusJson());
           const shortH = (st.ota_bundle_sha256 || '').slice(0, 10) || 'built-in';
-          el.innerText = `Installed: v${st.version_name || '5.0.0'} (Build ${st.version_code || 5}) • OTA: ${shortH}`;
+          el.innerText = `Installed: v${st.version_name || '5.6.0'} (Build ${st.version_code || 13}) • OTA: ${shortH}`;
         } catch (e) {}
       }
     }
